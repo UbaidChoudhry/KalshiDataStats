@@ -49,4 +49,21 @@ describe('historical dashboard', () => {
     await user.click(screen.getByRole('button', { name: 'Reload data' }))
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/sync-runs', expect.objectContaining({ method: 'POST' })))
   })
+
+  it('offers cancellation while a load is active', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      const payload = url.includes('/summary') ? { window: '1y', threshold: 80, settled_markets: 0, crossed_markets: 0, wrong_markets: 0, miss_rate: null }
+        : url.includes('/bands') ? { items: [] }
+        : url.includes('/misses') ? { items: [], page: 1, page_size: 50, total: 0, pages: 0 }
+        : url.includes('/data/status') ? { has_data: false, coverage_start: null, coverage_end: null, last_successful_sync: null, total_markets: 0, total_trades: 0 }
+        : { id: 'run', status: 'running', stage: 'historical catalog', window: '1y', processed_markets: 40, total_markets: 100, progress_percent: 40, breaker_open: false, breaker_seconds_remaining: 0, error: null, resumable: true }
+      return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('button', { name: 'Cancel load' })
+    await user.click(screen.getByRole('button', { name: 'Cancel load' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/sync-runs/current/cancel', expect.objectContaining({ method: 'POST' })))
+  })
 })

@@ -72,6 +72,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sync-runs/current/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Current Sync */
+        post: operations["cancel_current_sync_api_v1_sync_runs_current_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/history/summary": {
         parameters: {
             query?: never;
@@ -366,6 +383,26 @@ export interface operations {
         };
     };
     current_sync_api_v1_sync_runs_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SyncRun"] | null;
+                };
+            };
+        };
+    };
+    cancel_current_sync_api_v1_sync_runs_current_cancel_post: {
         parameters: {
             query?: never;
             header?: never;

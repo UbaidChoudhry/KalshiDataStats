@@ -28,6 +28,7 @@ from .storage import Store
 async def lifespan(app: FastAPI):
     settings = Settings.from_environment()
     store = Store(settings.data_dir)
+    store.mark_interrupted_runs_resumable()
     app.state.settings = settings
     app.state.store = store
     app.state.sync = SyncService(
@@ -70,6 +71,11 @@ async def start_sync(request: SyncRequest) -> SyncRun:
 @app.get("/api/v1/sync-runs/current", response_model=SyncRun | None)
 async def current_sync() -> SyncRun | None:
     return app.state.sync.current_run()
+
+
+@app.post("/api/v1/sync-runs/current/cancel", response_model=SyncRun | None)
+async def cancel_current_sync() -> SyncRun | None:
+    return app.state.sync.cancel_current()
 
 
 @app.get("/api/v1/history/summary", response_model=HistorySummary)

@@ -90,6 +90,11 @@ The committed `frontend/src/api/generated.ts` contract is generated from FastAPI
 schema. With the app running on port 8000, refresh and drift-check it with
 `npm --prefix frontend run check:api`.
 
+An active load can be cancelled from the dashboard. The saved catalog cursor and downloaded
+pages remain local, so **Reload data** resumes that same time frame rather than starting over.
+While the catalog is still being scanned, progress reports matching markets discovered; once
+the total is known, it reports downloaded markets out of the total.
+
 ## Limitations
 
 - Phase 1 does not analyze open markets, stream live prices, trade, place orders, create accounts, or deploy to the cloud.

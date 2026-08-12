@@ -124,6 +124,15 @@ class Store:
         self.db.execute("INSERT INTO sync_runs VALUES (?, 'queued', 'queued', ?, 0, 0, NULL, FALSE, ?, NULL, NULL)",
                         [run_id, window, datetime.now(UTC)])
 
+    def mark_interrupted_runs_resumable(self) -> None:
+        """A process restart stops asyncio tasks; retain their durable checkpoints for reload."""
+        self.db.execute("""
+          UPDATE sync_runs
+          SET status = 'failed_resumable', stage = 'interrupted',
+              error = 'The app restarted. Download progress is saved locally.', resumable = TRUE
+          WHERE status IN ('queued', 'running', 'breaker_open')
+        """)
+
     def update_run(self, run_id: str, **values: Any) -> None:
         if not values:
             return

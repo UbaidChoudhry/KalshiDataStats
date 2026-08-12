@@ -36,7 +36,7 @@ class SyncService:
             self.store.update_run(existing.id, status="queued", stage="resuming", error=None)
             self._schedule(existing.id, window)
             return self.current_run()  # type: ignore[return-value]
-        if existing and existing.status == "failed_resumable" and existing.window == window:
+        if existing and existing.status in {"failed_resumable", "cancelled"} and existing.window == window:
             self.store.update_run(existing.id, status="queued", stage="resuming", error=None)
             self._schedule(existing.id, window)
             return self.current_run()  # type: ignore[return-value]
@@ -44,6 +44,22 @@ class SyncService:
         self.store.start_run(run_id, window.value)
         self._schedule(run_id, window)
         return self.current_run()  # type: ignore[return-value]
+
+    def cancel_current(self) -> SyncRun | None:
+        """Stop the active task without discarding its durable cursor and staging data."""
+        current = self.current_run()
+        if not current or current.status not in {"queued", "running", "breaker_open"}:
+            return current
+        self.store.update_run(
+            current.id,
+            status="cancelled",
+            stage="cancelled",
+            error="Cancelled by user. Download progress is saved locally.",
+            resumable=True,
+        )
+        if self.task and not self.task.done():
+            self.task.cancel()
+        return self.current_run()
 
     def _schedule(self, run_id: str, window: Window) -> None:
         self.run_id = run_id
@@ -85,6 +101,14 @@ class SyncService:
                     )
                     await asyncio.sleep(exc.seconds_remaining)
                     self.store.update_run(run_id, status="running", stage="retrying", error=None)
+        except asyncio.CancelledError:
+            self.store.update_run(
+                run_id,
+                status="cancelled",
+                stage="cancelled",
+                error="Cancelled by user. Download progress is saved locally.",
+                resumable=True,
+            )
         except CircuitExhausted as exc:
             self.store.update_run(
                 run_id, status="failed_resumable", stage="paused", error=str(exc), resumable=True

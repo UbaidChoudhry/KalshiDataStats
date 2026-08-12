@@ -42,7 +42,7 @@ svg { width: 16px; height: 16px; stroke-width: 1.8; }
 
 .app-shell { min-height: 100vh; background: var(--canvas); }
 .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 22px; background: var(--shell); border-bottom: 1px solid var(--line); }
-.brand, .local-status, .sidebar button, .dataset-field > div, .title-row, .primary-button, .panel-heading, .sync-banner, .error-banner, article small, .pagination, .pagination div, .mobile-context { display: flex; align-items: center; }
+.brand, .local-status, .sidebar button, .dataset-field > div, .title-row, .title-actions, .primary-button, .secondary-button, .panel-heading, .sync-banner, .error-banner, article small, .pagination, .pagination div, .mobile-context { display: flex; align-items: center; }
 .brand { gap: 10px; font-weight: 650; }
 .brand > span { width: 30px; height: 30px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); border-radius: 9px; }
 .local-status { gap: 9px; color: var(--muted); font-size: 12px; }
@@ -67,7 +67,9 @@ h2 { margin: 0; font-size: 14px; }
 .primary-button, .secondary-button { border: 1px solid var(--line); border-radius: 9px; cursor: pointer; }
 .primary-button { flex: 0 0 auto; justify-content: center; gap: 8px; min-width: 132px; padding: 10px 14px; color: #071310; background: var(--accent); border-color: var(--accent); font-weight: 650; }
 .primary-button:disabled { cursor: wait; opacity: .72; }
+.title-actions { flex: 0 0 auto; gap: 9px; }
 .secondary-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; background: var(--surface-soft); }
+.cancel-button { padding: 10px 13px; color: var(--danger); }
 .sync-banner, .error-banner { justify-content: space-between; gap: 14px; margin-bottom: 14px; padding: 13px 15px; background: var(--surface); border: 1px solid var(--line); border-radius: 11px; }
 .sync-banner > div, .error-banner > div { min-width: 0; }
 .sync-banner strong, .sync-banner span, .error-banner strong, .error-banner span { display: block; }
@@ -140,7 +142,9 @@ td:first-child { white-space: normal; }
   .mobile-context span { color: var(--muted); }
   main { padding: 18px; }
   .title-row { align-items: stretch; flex-direction: column; }
+  .title-actions { width: 100%; }
   .primary-button { width: 100%; }
+  .cancel-button { flex: 1 1 auto; justify-content: center; }
   .filters { grid-template-columns: 1fr; }
   .dataset-field { grid-column: auto; }
   .sync-banner { align-items: stretch; flex-direction: column; }

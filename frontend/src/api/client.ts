@@ -51,4 +51,5 @@ export const api = {
   startSync: (window: WindowKey) =>
     request<SyncRun>('/sync-runs', { method: 'POST', body: JSON.stringify({ window }) }),
   currentSync: () => request<SyncRun | null>('/sync-runs/current'),
+  cancelSync: () => request<SyncRun | null>('/sync-runs/current/cancel', { method: 'POST' }),
 }

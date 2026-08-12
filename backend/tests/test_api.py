@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from fastapi.testclient import TestClient
@@ -22,3 +23,23 @@ def test_demo_sync_and_history_endpoints(monkeypatch, tmp_path):
         bands = client.get("/api/v1/history/bands?window=all&threshold=80").json()["items"]
         filtered = client.get(f"/api/v1/history/misses?window=all&threshold=80&min_percent={bands[0]['min_percent']}&max_percent={bands[0]['max_percent']}").json()
         assert filtered["total"] >= 1
+
+
+def test_cancel_marks_an_active_run_resumable(monkeypatch, tmp_path):
+    monkeypatch.setenv("KALSHI_DATA_DIR", str(tmp_path / "outside-data"))
+    monkeypatch.setenv("KALSHI_SYNC_MODE", "demo")
+    from backend.app.main import app
+    from backend.app.models import Window
+
+    with TestClient(app) as client:
+        service = app.state.sync
+
+        async def slow_demo(*_args):
+            await asyncio.sleep(60)
+
+        monkeypatch.setattr(service, "_demo", slow_demo)
+        started = client.post("/api/v1/sync-runs", json={"window": Window.ALL.value}).json()
+        assert started["status"] in {"queued", "running"}
+        cancelled = client.post("/api/v1/sync-runs/current/cancel").json()
+        assert cancelled["status"] == "cancelled"
+        assert cancelled["resumable"] is True

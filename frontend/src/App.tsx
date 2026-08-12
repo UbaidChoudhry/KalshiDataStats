@@ -25,6 +25,7 @@ function App() {
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
 
   const isSyncing = ['queued', 'running', 'breaker_open'].includes(sync.status)
 
@@ -83,6 +84,15 @@ function App() {
     setError(null)
     try { setSync(await api.startSync(windowKey)) } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Unable to start reload') }
   }
+  const cancelSync = async () => {
+    setCancelling(true)
+    try {
+      const cancelled = await api.cancelSync()
+      if (cancelled) setSync(cancelled)
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Unable to cancel the load')
+    } finally { setCancelling(false) }
+  }
   const handleSort = useCallback((nextSort: string) => {
     if (sort === nextSort) setDirection((value) => value === 'desc' ? 'asc' : 'desc')
     else { setSort(nextSort); setDirection('desc') }
@@ -90,7 +100,7 @@ function App() {
   }, [sort])
   const coverage = useMemo(() => dataStatus?.coverage_start && dataStatus.coverage_end ? `${new Date(dataStatus.coverage_start).toLocaleDateString()} – ${new Date(dataStatus.coverage_end).toLocaleDateString()}` : 'No local data yet', [dataStatus])
   const syncProgress = sync.total_markets > 0
-    ? `${sync.processed_markets.toLocaleString()} of ${sync.total_markets.toLocaleString()} markets`
+    ? `Downloaded ${sync.processed_markets.toLocaleString()} of ${sync.total_markets.toLocaleString()} markets`
     : sync.processed_markets > 0
       ? `${sync.processed_markets.toLocaleString()} matching markets discovered`
       : sync.stage.includes('catalog')
@@ -103,10 +113,11 @@ function App() {
     <div className="layout">
       <aside className="sidebar"><p>Analyze</p><button className="nav-active"><History />Historical misses</button><button disabled><RadioTower />Open markets <small>NEXT</small></button><p>Manage</p><button><Database />Local data</button><button><Settings2 />Settings</button><div className="storage-note"><strong>Stored on this Mac</strong><span>Market history stays outside the repository. API pace is configured locally.</span></div></aside>
       <main>
-        <div className="title-row"><div><h1>Historical mispredictions</h1><p>Find settled markets where the favored side crossed your confidence threshold and lost.</p></div><button className="primary-button" disabled={isSyncing} onClick={startSync}>{isSyncing ? <LoaderCircle className="spin" /> : <RefreshCw />}{isSyncing ? 'Loading…' : dataStatus?.has_data ? 'Reload data' : 'Load data'}</button></div>
+        <div className="title-row"><div><h1>Historical mispredictions</h1><p>Find settled markets where the favored side crossed your confidence threshold and lost.</p></div><div className="title-actions">{isSyncing && <button className="secondary-button cancel-button" disabled={cancelling} onClick={cancelSync}>{cancelling ? <LoaderCircle className="spin" /> : <XCircle />}{cancelling ? 'Cancelling…' : 'Cancel load'}</button>}<button className="primary-button" disabled={isSyncing} onClick={startSync}>{isSyncing ? <LoaderCircle className="spin" /> : <RefreshCw />}{isSyncing ? 'Loading…' : dataStatus?.has_data ? 'Reload data' : 'Load data'}</button></div></div>
 
         {isSyncing && <div className="sync-banner" role="status"><div><strong>{sync.status === 'breaker_open' ? `Rate limited — retrying in ${sync.breaker_seconds_remaining}s` : sync.stage}</strong><span>{syncProgress}</span></div><progress max="100" value={sync.total_markets > 0 ? sync.progress_percent : undefined} /></div>}
         {sync.status === 'failed_resumable' && <div className="error-banner" role="alert"><AlertCircle /><div><strong>Reload paused</strong><span>{sync.error} Your progress is saved; use Reload data to resume.</span></div></div>}
+        {sync.status === 'cancelled' && <div className="sync-banner" role="status"><div><strong>Load cancelled</strong><span>Your cursor and downloaded pages are saved. Select Reload data to continue.</span></div></div>}
         {error && <div className="error-banner" role="alert"><AlertCircle /><div><strong>Could not load dashboard</strong><span>{error}</span></div></div>}
 
         <section className="filters" aria-label="Analysis controls">
