@@ -50,6 +50,17 @@ describe('historical dashboard', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/sync-runs', expect.objectContaining({ method: 'POST' })))
   })
 
+  it('opens the local data screen with cache details', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText('High miss')
+    await user.click(screen.getByRole('button', { name: 'Local data' }))
+    expect(screen.getByRole('heading', { name: 'Local data' })).toBeInTheDocument()
+    expect(screen.getByText('Cached markets')).toBeInTheDocument()
+    expect(screen.getByText('Cached trades')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View historical misses' })).toBeInTheDocument()
+  })
+
   it('offers cancellation while a load is active', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input)

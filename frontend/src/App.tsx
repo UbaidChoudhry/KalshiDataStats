@@ -11,6 +11,7 @@ const emptyMisses: MissesResponse = { items: [], page: 1, page_size: 50, total: 
 const idleSync: SyncRun = { id: 'idle', status: 'idle', stage: 'Idle', window: '1y', processed_markets: 0, total_markets: 0, progress_percent: 0, breaker_open: false, breaker_seconds_remaining: 0, error: null, resumable: false }
 
 function App() {
+  const [activePage, setActivePage] = useState<'history' | 'data'>('history')
   const [windowKey, setWindowKey] = useState<WindowKey>('1y')
   const [threshold, setThreshold] = useState(80)
   const [customThreshold, setCustomThreshold] = useState('')
@@ -25,9 +26,10 @@ function App() {
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [starting, setStarting] = useState(false)
   const [cancelling, setCancelling] = useState(false)
 
-  const isSyncing = ['queued', 'running', 'breaker_open'].includes(sync.status)
+  const isSyncing = starting || ['queued', 'running', 'breaker_open'].includes(sync.status)
 
   const loadDashboard = useCallback(async () => {
     setLoading(true)
@@ -52,7 +54,11 @@ function App() {
 
   useEffect(() => {
     void api.currentSync()
-      .then((current) => { if (current) setSync(current) })
+      .then((current) => {
+        if (!current) return
+        setSync(current)
+        setWindowKey(current.window)
+      })
       .catch(() => { /* Dashboard data remains usable if run-state discovery fails. */ })
   }, [])
 
@@ -82,7 +88,22 @@ function App() {
   }
   const startSync = async () => {
     setError(null)
-    try { setSync(await api.startSync(windowKey)) } catch (nextError) { setError(nextError instanceof Error ? nextError.message : 'Unable to start reload') }
+    setStarting(true)
+    setSync((current) => ({
+      ...current,
+      status: 'queued',
+      stage: 'Starting load…',
+      window: windowKey,
+      error: null,
+      resumable: true,
+    }))
+    try {
+      setSync(await api.startSync(windowKey))
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : 'Unable to start reload')
+    } finally {
+      setStarting(false)
+    }
   }
   const cancelSync = async () => {
     setCancelling(true)
@@ -91,7 +112,10 @@ function App() {
       if (cancelled) setSync(cancelled)
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Unable to cancel the load')
-    } finally { setCancelling(false) }
+    } finally {
+      setCancelling(false)
+      setStarting(false)
+    }
   }
   const handleSort = useCallback((nextSort: string) => {
     if (sort === nextSort) setDirection((value) => value === 'desc' ? 'asc' : 'desc')
@@ -111,8 +135,22 @@ function App() {
     <header className="topbar"><div className="brand"><span><ScanLine /></span>Forecast Lens</div><div className="local-status"><i />{isSyncing ? sync.stage : dataStatus?.has_data ? 'Local data ready' : 'Awaiting first load'}</div></header>
     <div className="mobile-context"><History /> Historical misses <span>• Phase 1</span></div>
     <div className="layout">
-      <aside className="sidebar"><p>Analyze</p><button className="nav-active"><History />Historical misses</button><button disabled><RadioTower />Open markets <small>NEXT</small></button><p>Manage</p><button><Database />Local data</button><button><Settings2 />Settings</button><div className="storage-note"><strong>Stored on this Mac</strong><span>Market history stays outside the repository. API pace is configured locally.</span></div></aside>
+      <aside className="sidebar"><p>Analyze</p><button className={activePage === 'history' ? 'nav-active' : ''} onClick={() => setActivePage('history')}><History />Historical misses</button><button disabled><RadioTower />Open markets <small>NEXT</small></button><p>Manage</p><button className={activePage === 'data' ? 'nav-active' : ''} onClick={() => setActivePage('data')}><Database />Local data</button><button><Settings2 />Settings</button><div className="storage-note"><strong>Stored on this Mac</strong><span>Market history stays outside the repository. API pace is configured locally.</span></div></aside>
       <main>
+        {activePage === 'data' ? <section className="data-page" aria-labelledby="local-data-heading">
+          <div className="title-row"><div><h1 id="local-data-heading">Local data</h1><p>Inspect the cached Kalshi dataset stored only on this Mac.</p></div><div className="title-actions">{isSyncing && <button className="secondary-button cancel-button" disabled={cancelling} onClick={cancelSync}>{cancelling ? <LoaderCircle className="spin" /> : <XCircle />}{cancelling ? 'Cancelling…' : 'Cancel load'}</button>}<button className="primary-button" disabled={isSyncing} onClick={startSync}>{isSyncing ? <LoaderCircle className="spin" /> : <RefreshCw />}{isSyncing ? 'Loading…' : 'Load selected window'}</button></div></div>
+          {isSyncing && <div className="sync-banner" role="status"><div><strong>{sync.status === 'breaker_open' ? `Rate limited — retrying in ${sync.breaker_seconds_remaining}s` : sync.stage}</strong><span>{syncProgress}</span></div><progress max="100" value={sync.total_markets > 0 ? sync.progress_percent : undefined} /></div>}
+          {sync.status === 'failed_resumable' && <div className="error-banner" role="alert"><AlertCircle /><div><strong>Reload paused</strong><span>{sync.error} Use Load selected window to resume.</span></div></div>}
+          {sync.status === 'cancelled' && <div className="sync-banner" role="status"><div><strong>Load cancelled</strong><span>Your cursor and downloaded pages are saved.</span></div></div>}
+          {error && <div className="error-banner" role="alert"><AlertCircle /><div><strong>Could not load data</strong><span>{error}</span></div></div>}
+          <section className="kpis local-kpis" aria-label="Local dataset status">
+            <article><span>Cached markets</span><strong>{dataStatus?.total_markets.toLocaleString() ?? '0'}</strong><small><Database />finalized markets</small></article>
+            <article><span>Cached trades</span><strong>{dataStatus?.total_trades.toLocaleString() ?? '0'}</strong><small><TrendingUp />eligible trade records</small></article>
+            <article><span>Coverage</span><strong className="coverage-value">{coverage}</strong><small><History />settlement dates</small></article>
+            <article><span>Last successful load</span><strong className="coverage-value">{dataStatus?.last_successful_sync ? new Date(dataStatus.last_successful_sync).toLocaleString() : 'Not loaded yet'}</strong><small><RefreshCw />local-only storage</small></article>
+          </section>
+          <section className="data-detail"><h2>Current load</h2><p><strong>{sync.stage}</strong>{sync.error ? ` — ${sync.error}` : isSyncing ? ` — ${syncProgress}` : ' — no active download'}</p><button className="secondary-button" onClick={() => setActivePage('history')}><History />View historical misses</button></section>
+        </section> : <>
         <div className="title-row"><div><h1>Historical mispredictions</h1><p>Find settled markets where the favored side crossed your confidence threshold and lost.</p></div><div className="title-actions">{isSyncing && <button className="secondary-button cancel-button" disabled={cancelling} onClick={cancelSync}>{cancelling ? <LoaderCircle className="spin" /> : <XCircle />}{cancelling ? 'Cancelling…' : 'Cancel load'}</button>}<button className="primary-button" disabled={isSyncing} onClick={startSync}>{isSyncing ? <LoaderCircle className="spin" /> : <RefreshCw />}{isSyncing ? 'Loading…' : dataStatus?.has_data ? 'Reload data' : 'Load data'}</button></div></div>
 
         {isSyncing && <div className="sync-banner" role="status"><div><strong>{sync.status === 'breaker_open' ? `Rate limited — retrying in ${sync.breaker_seconds_remaining}s` : sync.stage}</strong><span>{syncProgress}</span></div><progress max="100" value={sync.total_markets > 0 ? sync.progress_percent : undefined} /></div>}
@@ -135,6 +173,7 @@ function App() {
 
         <section className="chart-panel" aria-labelledby="chart-heading"><header className="panel-heading"><h2 id="chart-heading">Wrong calls by peak confidence</h2><span>Select a bar to inspect its markets</span></header>{loading ? <div className="loading-state"><LoaderCircle className="spin" /> Loading analytics</div> : bands.length ? <ConfidenceChart bands={bands} selected={selectedBand} onSelect={(band) => { setSelectedBand((current) => current?.min_percent === band.min_percent ? null : band); setPage(1) }} /> : <div className="empty-chart"><BarChart3 />No confidence bands for this selection</div>}</section>
         <MissesTable data={misses} band={selectedBand} page={page} sort={sort} direction={direction} onClearBand={() => { setSelectedBand(null); setPage(1) }} onPage={setPage} onSort={handleSort} />
+        </>}
       </main>
     </div>
   </div>
