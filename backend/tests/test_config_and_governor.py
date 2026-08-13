@@ -2,6 +2,7 @@ import pytest
 
 from backend.app.config import Settings, UnsafeDataDirectory
 from backend.app.kalshi import CircuitExhausted, CircuitOpen, RequestGovernor
+from backend.app.storage import StorageLimitExceeded, Store
 
 
 def test_refuses_data_inside_repository(monkeypatch, tmp_path):
@@ -31,6 +32,25 @@ def test_repository_dotenv_loads_without_overriding_shell(monkeypatch, tmp_path)
     assert (settings.sync_mode, settings.pause_seconds) == ("demo", 12)
     monkeypatch.setenv("KALSHI_SYNC_MODE", "real")
     assert Settings.from_environment(tmp_path).sync_mode == "real"
+
+
+def test_optional_storage_limit_is_unlimited_when_blank(monkeypatch, tmp_path):
+    monkeypatch.setenv("KALSHI_DATA_DIR", str(tmp_path.parent / "storage-data"))
+    monkeypatch.setenv("KALSHI_MAX_STORAGE_GB", "")
+    assert Settings.from_environment(tmp_path).max_storage_bytes is None
+    monkeypatch.setenv("KALSHI_MAX_STORAGE_GB", "1.5")
+    assert Settings.from_environment(tmp_path).max_storage_bytes == int(1.5 * 1024**3)
+    monkeypatch.setenv("KALSHI_MAX_STORAGE_GB", "0")
+    with pytest.raises(ValueError, match="KALSHI_MAX_STORAGE_GB"):
+        Settings.from_environment(tmp_path)
+
+
+def test_store_refuses_writes_past_configured_storage_limit(tmp_path):
+    store = Store(tmp_path / "data")
+    store.max_storage_bytes = store.storage_bytes()
+    with pytest.raises(StorageLimitExceeded, match="Local storage limit reached"):
+        store.append_staged_catalog("limit-run", [{"ticker": "LIMIT", "title": "limit"}])
+    store.close()
 
 
 @pytest.mark.asyncio

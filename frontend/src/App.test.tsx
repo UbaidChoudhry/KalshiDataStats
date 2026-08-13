@@ -19,7 +19,7 @@ describe('historical dashboard', () => {
       const payload = url.includes('/summary') ? { window: '1y', threshold: 80, settled_markets: 100, crossed_markets: 20, wrong_markets: 4, miss_rate: .2 }
         : url.includes('/bands') ? { items: [{ min_percent: 80, max_percent: 84, label: '80–84%', count: 4 }] }
         : url.includes('/misses') ? { items: markets, page: 1, page_size: 50, total: 1, pages: 1 }
-        : url.includes('/data/status') ? { has_data: true, coverage_start: '2025-01-01T00:00:00Z', coverage_end: '2026-01-01T00:00:00Z', last_successful_sync: '2026-01-01T00:00:00Z', total_markets: 100, total_trades: 1000 }
+        : url.includes('/data/status') ? { has_data: true, coverage_start: '2025-01-01T00:00:00Z', coverage_end: '2026-01-01T00:00:00Z', last_successful_sync: '2026-01-01T00:00:00Z', total_markets: 100, total_trades: 1000, storage_bytes: 1024 ** 3, storage_limit_bytes: 5 * 1024 ** 3 }
         : { id: 'run', status: 'completed', stage: 'Complete', window: '1y', processed_markets: 100, total_markets: 100, progress_percent: 100, breaker_open: false, breaker_seconds_remaining: 0, error: null, resumable: false }
       return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }))
@@ -58,6 +58,7 @@ describe('historical dashboard', () => {
     expect(screen.getByRole('heading', { name: 'Local data' })).toBeInTheDocument()
     expect(screen.getByText('Cached markets')).toBeInTheDocument()
     expect(screen.getByText('Cached trades')).toBeInTheDocument()
+    expect(screen.getByText('Storage used')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'View historical misses' })).toBeInTheDocument()
   })
 

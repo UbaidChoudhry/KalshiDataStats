@@ -8,7 +8,7 @@ from typing import Any
 from .analytics import window_start
 from .kalshi import CircuitExhausted, CircuitOpen, KalshiClient, RequestGovernor
 from .models import SyncRun, Window
-from .storage import Store
+from .storage import StorageLimitExceeded, Store
 
 
 class SyncService:
@@ -112,6 +112,10 @@ class SyncService:
         except CircuitExhausted as exc:
             self.store.update_run(
                 run_id, status="failed_resumable", stage="paused", error=str(exc), resumable=True
+            )
+        except StorageLimitExceeded as exc:
+            self.store.update_run(
+                run_id, status="failed_resumable", stage="storage limit", error=str(exc), resumable=True
             )
         except Exception as exc:
             self.store.update_run(

@@ -48,6 +48,7 @@ For separate frontend/backend development, run `uv run fastapi dev backend/app/m
 | --- | --- | --- |
 | `KALSHI_BASE_URL` | `https://external-api.kalshi.com/trade-api/v2` | Public Kalshi API base URL |
 | `KALSHI_REQUESTS_PER_SECOND` | `5` | Process-wide request pace; burst size is one |
+| `KALSHI_MAX_STORAGE_GB` | *(blank)* | Optional local data cap in GiB; blank means no limit |
 | `KALSHI_429_PAUSE_SECONDS` | `60` | Circuit-open interval after HTTP 429 |
 | `KALSHI_429_MAX_PAUSES` | `3` | Maximum pause/probe cycles before a resumable failure |
 | `KALSHI_DATA_DIR` | `~/Library/Application Support/KalshiDataStats` | DuckDB, Parquet, staging, and checkpoint location |

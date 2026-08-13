@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -12,9 +13,14 @@ import duckdb
 import polars as pl
 
 
+class StorageLimitExceeded(RuntimeError):
+    pass
+
+
 class Store:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, max_storage_bytes: int | None = None):
         self.data_dir = data_dir
+        self.max_storage_bytes = max_storage_bytes
         self.parquet_dir = data_dir / "trades"
         self.staging_dir = data_dir / "staging"
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -95,8 +101,6 @@ class Store:
         settlement = parse_time(market.get("settlement_ts") or market.get("settled_at"))
         partition = self.parquet_dir / f"settled_year={settlement.year}" / f"settled_month={settlement.month:02d}"
         parquet_name = f"{hashlib.sha256(ticker.encode()).hexdigest()}.parquet"
-        stage = self.staging_dir / parquet_name
-        stage.parent.mkdir(exist_ok=True)
         normalized = [{
             "trade_id": str(t.get("trade_id", "")), "ticker": ticker,
             "yes_price": price_percent(t.get("yes_price_dollars", t.get("yes_price"))),
@@ -104,9 +108,18 @@ class Store:
             "created_at": parse_time(t.get("created_time") or t.get("created_at")),
         } for t in eligible]
         if normalized:
-            pl.DataFrame(normalized).write_parquet(stage, compression="zstd")
             partition.mkdir(parents=True, exist_ok=True)
-            os.replace(stage, partition / parquet_name)
+            target = partition / parquet_name
+            descriptor, temporary_name = tempfile.mkstemp(prefix="kalshi-trades-", suffix=".parquet")
+            os.close(descriptor)
+            temporary = Path(temporary_name)
+            try:
+                pl.DataFrame(normalized).write_parquet(temporary, compression="zstd")
+                existing_size = target.stat().st_size if target.exists() else 0
+                self._ensure_can_write(max(0, temporary.stat().st_size - existing_size))
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
         else:
             (partition / parquet_name).unlink(missing_ok=True)
         yes = extrema(normalized, "yes_price")
@@ -153,10 +166,11 @@ class Store:
         artifact = self._staging_artifact(run_id, ticker)
         if not trades:
             return
+        encoded = "".join(json.dumps(trade, default=str, separators=(",", ":")) + "\n" for trade in trades)
+        self._ensure_can_write(len(encoded.encode()))
         artifact.parent.mkdir(parents=True, exist_ok=True)
         with artifact.open("a", encoding="utf-8") as handle:
-            for trade in trades:
-                handle.write(json.dumps(trade, default=str, separators=(",", ":")) + "\n")
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
 
@@ -179,10 +193,11 @@ class Store:
         if not markets:
             return
         artifact = self._catalog_artifact(run_id)
+        encoded = "".join(json.dumps(market, default=str, separators=(",", ":")) + "\n" for market in markets)
+        self._ensure_can_write(len(encoded.encode()))
         artifact.parent.mkdir(parents=True, exist_ok=True)
         with artifact.open("a", encoding="utf-8") as handle:
-            for market in markets:
-                handle.write(json.dumps(market, default=str, separators=(",", ":")) + "\n")
+            handle.write(encoded)
             handle.flush()
             os.fsync(handle.fileno())
 
@@ -241,7 +256,22 @@ class Store:
             "SELECT max(finished_at) FROM sync_runs WHERE status = 'completed'"
         ).fetchone()[0]
         return {"has_data": bool(row[0]), "total_markets": row[0], "total_trades": row[1],
-                "coverage_start": row[2], "coverage_end": row[3], "last_successful_sync": last_success}
+                "coverage_start": row[2], "coverage_end": row[3], "last_successful_sync": last_success,
+                "storage_bytes": self.storage_bytes(), "storage_limit_bytes": self.max_storage_bytes}
+
+    def storage_bytes(self) -> int:
+        return sum(path.stat().st_size for path in self.data_dir.rglob("*") if path.is_file())
+
+    def _ensure_can_write(self, additional_bytes: int) -> None:
+        if self.max_storage_bytes is None:
+            return
+        used_bytes = self.storage_bytes()
+        if used_bytes + additional_bytes > self.max_storage_bytes:
+            raise StorageLimitExceeded(
+                "Local storage limit reached "
+                f"({format_bytes(used_bytes)} used of {format_bytes(self.max_storage_bytes)}). "
+                "Increase KALSHI_MAX_STORAGE_GB or clear local data before resuming."
+            )
 
 
 def parse_time(value: Any) -> datetime:
@@ -257,6 +287,12 @@ def parse_time(value: Any) -> datetime:
 def price_percent(value: Any) -> int:
     numeric = float(value or 0)
     return round(numeric * 100) if numeric <= 1 else round(numeric)
+
+
+def format_bytes(value: int) -> str:
+    if value < 1024**2:
+        return f"{value / 1024:.1f} KB"
+    return f"{value / 1024**3:.2f} GB"
 
 
 def extrema(trades: list[dict[str, Any]], field: str) -> tuple[int | None, datetime | None]:

@@ -38,6 +38,8 @@ class DataStatus(BaseModel):
     last_successful_sync: datetime | None = None
     total_markets: int = 0
     total_trades: int = 0
+    storage_bytes: int = 0
+    storage_limit_bytes: int | None = None
 
 
 class HistorySummary(BaseModel):

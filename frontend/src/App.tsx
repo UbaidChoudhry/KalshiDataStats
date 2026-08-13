@@ -123,6 +123,15 @@ function App() {
     setPage(1)
   }, [sort])
   const coverage = useMemo(() => dataStatus?.coverage_start && dataStatus.coverage_end ? `${new Date(dataStatus.coverage_start).toLocaleDateString()} – ${new Date(dataStatus.coverage_end).toLocaleDateString()}` : 'No local data yet', [dataStatus])
+  const storageUsage = useMemo(() => {
+    if (!dataStatus) return 'Loading…'
+    const format = (bytes: number) => bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 ** 3).toFixed(2)} GB`
+    const used = dataStatus.storage_bytes ?? 0
+    const limit = dataStatus.storage_limit_bytes
+    return limit == null
+      ? `${format(used)} (no limit)`
+      : `${format(used)} of ${format(limit)}`
+  }, [dataStatus])
   const syncProgress = sync.total_markets > 0
     ? `Downloaded ${sync.processed_markets.toLocaleString()} of ${sync.total_markets.toLocaleString()} markets`
     : sync.processed_markets > 0
@@ -148,6 +157,7 @@ function App() {
             <article><span>Cached trades</span><strong>{dataStatus?.total_trades.toLocaleString() ?? '0'}</strong><small><TrendingUp />eligible trade records</small></article>
             <article><span>Coverage</span><strong className="coverage-value">{coverage}</strong><small><History />settlement dates</small></article>
             <article><span>Last successful load</span><strong className="coverage-value">{dataStatus?.last_successful_sync ? new Date(dataStatus.last_successful_sync).toLocaleString() : 'Not loaded yet'}</strong><small><RefreshCw />local-only storage</small></article>
+            <article><span>Storage used</span><strong className="coverage-value">{storageUsage}</strong><small><Database />configured in environment</small></article>
           </section>
           <section className="data-detail"><h2>Current load</h2><p><strong>{sync.stage}</strong>{sync.error ? ` — ${sync.error}` : isSyncing ? ` — ${syncProgress}` : ' — no active download'}</p><button className="secondary-button" onClick={() => setActivePage('history')}><History />View historical misses</button></section>
         </section> : <>

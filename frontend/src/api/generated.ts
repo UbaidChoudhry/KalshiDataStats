@@ -180,6 +180,13 @@ export interface components {
              * @default 0
              */
             total_trades: number;
+            /**
+             * Storage Bytes
+             * @default 0
+             */
+            storage_bytes: number;
+            /** Storage Limit Bytes */
+            storage_limit_bytes?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

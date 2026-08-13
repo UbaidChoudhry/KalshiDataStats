@@ -15,6 +15,7 @@ class UnsafeDataDirectory(ValueError):
 class Settings:
     repository_root: Path
     data_dir: Path
+    max_storage_bytes: int | None
     requests_per_second: float
     base_url: str
     pause_seconds: int
@@ -46,6 +47,13 @@ class Settings:
         rate = float(os.getenv("KALSHI_REQUESTS_PER_SECOND", "5"))
         if rate <= 0:
             raise ValueError("KALSHI_REQUESTS_PER_SECOND must be greater than zero.")
+        raw_max_storage_gb = os.getenv("KALSHI_MAX_STORAGE_GB", "").strip()
+        max_storage_bytes = None
+        if raw_max_storage_gb:
+            max_storage_gb = float(raw_max_storage_gb)
+            if max_storage_gb <= 0:
+                raise ValueError("KALSHI_MAX_STORAGE_GB must be greater than zero when configured.")
+            max_storage_bytes = int(max_storage_gb * 1024**3)
         pause_seconds = int(os.getenv("KALSHI_429_PAUSE_SECONDS", "60"))
         max_pauses = int(os.getenv("KALSHI_429_MAX_PAUSES", "3"))
         if pause_seconds <= 0 or max_pauses <= 0:
@@ -53,6 +61,7 @@ class Settings:
         return cls(
             repository_root=root,
             data_dir=data_dir,
+            max_storage_bytes=max_storage_bytes,
             requests_per_second=rate,
             base_url=os.getenv("KALSHI_BASE_URL", "https://external-api.kalshi.com/trade-api/v2").rstrip("/"),
             pause_seconds=pause_seconds,

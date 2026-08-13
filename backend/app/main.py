@@ -27,7 +27,7 @@ from .storage import Store
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings.from_environment()
-    store = Store(settings.data_dir)
+    store = Store(settings.data_dir, max_storage_bytes=settings.max_storage_bytes)
     store.mark_interrupted_runs_resumable()
     app.state.settings = settings
     app.state.store = store
