@@ -69,6 +69,16 @@ All downloaded data remains local and outside the repository.
 
 ## API and development
 
+Start or stop the local app without keeping a terminal window open:
+
+```bash
+./scripts/start-app.sh
+./scripts/stop-app.sh
+```
+
+The scripts record only their own background process in your temporary directory and write its
+launch log to `/tmp/kalshi-data-stats.log` (or the system `TMPDIR` equivalent).
+
 The local API is versioned under `/api/v1`; interactive documentation is available at `/docs`. Refresh frontend contracts from the running server with:
 
 ```bash
