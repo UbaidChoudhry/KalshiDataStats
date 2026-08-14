@@ -4,7 +4,7 @@ Forecast Lens is a local analytics dashboard for finding settled Kalshi markets 
 
 ## What it measures
 
-A market is counted as a miss when any non-block trade prices the eventual losing side at or above the selected threshold. The 3-month, 6-month, and 1-year filters use settlement time, while every eligible trade across each included market's full lifetime is analyzed. Finalized binary and multivariate-event markets are supported; scalar markets are excluded.
+A market is counted as a miss when any non-block trade prices the eventual losing side at or above the selected threshold. The 3-month, 6-month, and 1-year filters use settlement time, while every eligible trade across each included market's full lifetime is analyzed. Only ordinary finalized YES/NO markets are included; scalar and multivariate-event (combo) markets are excluded.
 
 The dashboard includes summary statistics, five-point confidence bands, clickable bar-to-market drill-down, custom integer thresholds from 50% to 99%, sorting, and 50-row server-side pagination.
 
@@ -32,7 +32,7 @@ Launch the production-style single process:
 uv run python -m backend.app
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The first **Load data** operation may take a long time for a large window. Progress and rate-limit pauses are shown in the dashboard, and interrupted work is resumable.
+Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The first **Load data** operation scans the ordinary-market catalog and may take a while. It then shows downloaded markets out of the selected total. Progress and rate-limit pauses are shown in the dashboard, and interrupted work is resumable.
 
 For deterministic offline development:
 
@@ -57,9 +57,15 @@ For separate frontend/backend development, run `uv run fastapi dev backend/app/m
 
 The backend refuses to start when `KALSHI_DATA_DIR` resolves inside the repository. `.env`, key files, databases, Parquet files, staging data, logs, environments, dependencies, and build output are ignored by Git.
 
+### Updating an older local cache
+
+The compact-storage format is versioned. If the app reports that the existing local cache is from an older format, it will not mix the two datasets. Stop the app, move or remove the folder named by `KALSHI_DATA_DIR` (the default is `~/Library/Application Support/KalshiDataStats`), then start the app and load the selected window again. This affects local downloaded market data only; it never touches the repository or credentials.
+
 ## Storage choice
 
-The adopted design combines DuckDB metadata and aggregate queries with Zstandard-compressed Parquet trade partitions by settlement year and month. This keeps analytical scans fast while retaining raw normalized trades for future statistics.
+The adopted design combines DuckDB metadata and aggregate queries with Zstandard-compressed Parquet trade partitions by settlement year and month. It is designed for a laptop: every eligible market has a compact DuckDB aggregate (peak price, timestamps, crossings, and trade count), while raw normalized Parquet is retained only where the eventual losing side traded at 50% or above. This keeps all supported 50%–99% historical-miss analysis exact without retaining ordinary non-miss trade history.
+
+Catalog pages are staged and queried in DuckDB instead of accumulated in application memory. A selected-window reload publishes only after it succeeds; then data outside that selected settlement window is pruned. An all-history reload retains all completed coverage. Existing data stays queryable if a load is cancelled, rate limited, or hits the optional storage cap.
 
 - DuckDB alone is simpler, but makes raw partition replacement and recovery less convenient.
 - SQLite is lightweight, but is less suitable for large column-oriented analytical scans.
@@ -102,12 +108,14 @@ schema. With the app running on port 8000, refresh and drift-check it with
 `npm --prefix frontend run check:api`.
 
 An active load can be cancelled from the dashboard. The saved catalog cursor and downloaded
-pages remain local, so **Reload data** resumes that same time frame rather than starting over.
-While the catalog is still being scanned, progress reports matching markets discovered; once
-the total is known, it reports downloaded markets out of the total.
+market work remain local, so **Reload data** resumes that same time frame rather than starting over.
+While the catalog is still being scanned, progress reports matching ordinary markets discovered;
+once the total is known, it reports downloaded markets out of the total. The Local data screen
+shows the aggregate-market count, retained raw trade count, dataset version, coverage, and disk use.
 
 ## Limitations
 
 - Phase 1 does not analyze open markets, stream live prices, trade, place orders, create accounts, or deploy to the cloud.
+- Multivariate-event (combo) markets are intentionally excluded to keep the local historical dataset tractable.
 - Kalshi can move records between live and historical API partitions. Each sync reads the current cutoff and routes requests accordingly.
 - Public exchange data can be corrected upstream; reloading refreshes affected finalized markets without deleting unrelated cached coverage.

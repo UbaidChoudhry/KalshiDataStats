@@ -29,7 +29,7 @@ def qualified(store: Store, window: Window) -> list[dict[str, Any]]:
       SELECT m.ticker, m.event_ticker, m.title, m.settlement_value, m.settled_at,
              a.yes_peak, a.no_peak, a.yes_first_crossed, a.no_first_crossed
       FROM markets m LEFT JOIN aggregates a USING(ticker)
-      WHERE m.settlement_value IN (0, 1) AND m.market_type != 'scalar'
+      WHERE m.settlement_value IN (0, 1) AND m.market_type NOT IN ('scalar', 'mve')
     """
     params: list[Any] = []
     if start:

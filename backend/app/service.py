@@ -71,9 +71,11 @@ class SyncService:
             return None
         total = row["total_markets"] or 0
         seconds = self.governor.seconds_remaining_sync()
+        raw_markets, raw_trades = self.store.run_raw_progress(row["id"])
         return SyncRun(id=row["id"], status=row["status"], stage=row["stage"], window=row["window"],
                        processed_markets=row["processed_markets"], total_markets=total,
                        progress_percent=round(100 * row["processed_markets"] / total, 1) if total else 0,
+                       raw_markets=raw_markets, raw_trades=raw_trades,
                        breaker_open=seconds > 0 or row["status"] == "breaker_open",
                        breaker_seconds_remaining=seconds, error=row["error"], resumable=row["resumable"])
 
@@ -153,24 +155,27 @@ class SyncService:
             start_ts = int(start.timestamp()) if start else 0
             now_ts = int(datetime.now(UTC).timestamp())
             checkpoint = self.store.checkpoint(run_id)
-            catalog_is_complete = checkpoint.get("phase") == "trades" or "ticker" in checkpoint
-            markets = self.store.staged_catalog(run_id)
+            catalog_is_complete = checkpoint.get("phase") in {"trades", "publish"} or "ticker" in checkpoint
             if not catalog_is_complete:
-                current = self.current_run()
-                discovered_markets = current.processed_markets if current else 0
+                # A COUNT(*) after every catalog page turns a million-row load
+                # into quadratic database work. Keep the discovery indicator in
+                # the durable checkpoint and perform one exact count at phase end.
+                discovered_markets = int(checkpoint.get("discovered_markets", 0))
+                if not discovered_markets and checkpoint.get("cursor"):
+                    discovered_markets = self.store.run_market_count(run_id)
                 catalog_endpoint = checkpoint.get("endpoint", "/historical/markets")
                 catalog_cursor = checkpoint.get("cursor")
                 if catalog_endpoint == "/historical/markets":
                     self.store.update_run(run_id, stage="historical catalog")
                     async for values, next_cursor in client.pages(
-                        "/historical/markets", {}, "markets", start_cursor=catalog_cursor
+                        "/historical/markets", {"mve_filter": "exclude"}, "markets", start_cursor=catalog_cursor
                     ):
                         selected = [
                             normalize_market(m) for m in values
                             if eligible_market(m)
                             and market_in_window(m, start, cutoff.market_settled_ts)
                         ]
-                        self.store.append_staged_catalog(run_id, selected)
+                        self.store.stage_catalog_page(run_id, selected)
                         discovered_markets += len(selected)
                         self.store.update_run(
                             run_id,
@@ -180,6 +185,7 @@ class SyncService:
                                 "phase": "catalog",
                                 "endpoint": "/historical/markets",
                                 "cursor": next_cursor,
+                                "discovered_markets": discovered_markets,
                             },
                         )
                     catalog_endpoint = "/markets"
@@ -187,19 +193,23 @@ class SyncService:
                     self.store.update_run(
                         run_id,
                         stage="recent catalog",
-                        checkpoint={"phase": "catalog", "endpoint": "/markets", "cursor": None},
+                        checkpoint={
+                            "phase": "catalog", "endpoint": "/markets", "cursor": None,
+                            "discovered_markets": discovered_markets,
+                        },
                     )
                 if catalog_endpoint == "/markets":
                     live_params = {
                         "status": "settled",
                         "min_settled_ts": max(start_ts, cutoff.market_settled_ts),
                         "max_settled_ts": now_ts,
+                        "mve_filter": "exclude",
                     }
                     self.store.update_run(run_id, stage="recent catalog")
                     async for values, next_cursor in client.pages(
                         "/markets", live_params, "markets", start_cursor=catalog_cursor
                     ):
-                        self.store.append_staged_catalog(
+                        self.store.stage_catalog_page(
                             run_id,
                             [normalize_market(m) for m in values if eligible_market(m)],
                         )
@@ -212,27 +222,44 @@ class SyncService:
                                 "phase": "catalog",
                                 "endpoint": "/markets",
                                 "cursor": next_cursor,
+                                "discovered_markets": discovered_markets,
                             },
                         )
-                markets = self.store.staged_catalog(run_id)
                 self.store.update_run(
                     run_id,
                     stage="catalog complete",
                     processed_markets=0,
-                    total_markets=len(markets),
+                    total_markets=self.store.run_market_count(run_id),
                     checkpoint={"phase": "trades"},
                 )
-            self.store.update_run(run_id, stage="catalog", total_markets=len(markets))
-            unchanged_tickers = self.store.completed_unchanged_tickers(markets)
+            total_markets = self.store.run_market_count(run_id)
+            self.store.update_run(run_id, stage="catalog", total_markets=total_markets)
             resume_checkpoint = self.store.checkpoint(run_id)
-            self.store.upsert_markets(markets)
-            for index, market in enumerate(markets, 1):
-                if market["ticker"] in unchanged_tickers:
+            index = 0
+            for market in self.store.iter_run_markets(run_id):
+                index += 1
+                if self.store.run_market_is_complete(run_id, market):
                     self.store.update_run(
                         run_id,
                         stage="trades",
                         processed_markets=index,
                         checkpoint={"ticker": market["ticker"], "skipped": True},
+                    )
+                    continue
+                if (
+                    self.store.is_market_complete_and_unchanged(market)
+                    and self.store.copy_existing_market_to_run(run_id, market)
+                ):
+                    self.store.update_run(
+                        run_id, stage="unchanged", processed_markets=index,
+                        checkpoint={"ticker": market["ticker"], "skipped": True},
+                    )
+                    continue
+                if market_reports_zero_volume(market):
+                    self.store.finalize_run_market(run_id, market)
+                    self.store.update_run(
+                        run_id, stage="zero-volume", processed_markets=index,
+                        checkpoint={"ticker": market["ticker"], "endpoint": "complete", "cursor": None},
                     )
                     continue
                 # Keep the pre-loop resume location: progress updates for already-complete
@@ -254,9 +281,7 @@ class SyncService:
                 if resume_endpoint == "complete":
                     # A crash can happen after both streams have staged successfully but before
                     # the atomic final-partition replace. Publish that durable staging artifact.
-                    trades = self.store.staged_trades(run_id, market["ticker"])
-                    self.store.replace_market_trades(market, trades)
-                    self.store.clear_staged_trades(run_id, market["ticker"])
+                    self.store.finalize_run_market(run_id, market)
                     self.store.update_run(
                         run_id,
                         stage="trades",
@@ -272,7 +297,7 @@ class SyncService:
                     async for values, next_cursor in client.pages(
                         endpoint, params, "trades", start_cursor=start_cursor
                     ):
-                        self.store.append_staged_trades(run_id, market["ticker"], values)
+                        self.store.append_market_trade_page(run_id, market["ticker"], values)
                         self.store.update_run(
                             run_id,
                             stage="trades",
@@ -297,16 +322,15 @@ class SyncService:
                         },
                     )
                     resume_cursor = None
-                trades = self.store.staged_trades(run_id, market["ticker"])
-                self.store.replace_market_trades(market, trades)
-                self.store.clear_staged_trades(run_id, market["ticker"])
+                self.store.finalize_run_market(run_id, market)
                 self.store.update_run(
                     run_id,
                     stage="trades",
                     processed_markets=index,
                     checkpoint={"ticker": market["ticker"], "endpoint": "complete", "cursor": None},
                 )
-            self.store.clear_staged_catalog(run_id)
+            self.store.update_run(run_id, stage="publishing", checkpoint={"phase": "publish"})
+            self.store.publish_run(run_id, window.value)
         finally:
             await client.close()
 
@@ -333,6 +357,18 @@ def normalize_market(market: dict[str, Any]) -> dict[str, Any]:
 def market_in_window(market: dict[str, Any], start: datetime | None, cutoff_ts: int) -> bool:
     settled = datetime.fromisoformat(str(market["settlement_ts"]).replace("Z", "+00:00"))
     return settled.timestamp() < cutoff_ts and (start is None or settled >= start)
+
+
+def market_reports_zero_volume(market: dict[str, Any]) -> bool:
+    """Only skip when the catalog explicitly says there were no trades; absent
+    volume fields remain eligible because endpoint shapes differ by vintage."""
+    value = market.get("reported_volume", market.get("volume", market.get("volume_fp")))
+    if value is None:
+        return False
+    try:
+        return float(value) == 0
+    except (TypeError, ValueError):
+        return False
 
 
 def demo_markets() -> list[dict[str, Any]]:

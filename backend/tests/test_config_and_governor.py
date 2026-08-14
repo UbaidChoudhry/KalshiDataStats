@@ -1,8 +1,9 @@
+import duckdb
 import pytest
 
 from backend.app.config import Settings, UnsafeDataDirectory
 from backend.app.kalshi import CircuitExhausted, CircuitOpen, RequestGovernor
-from backend.app.storage import StorageLimitExceeded, Store
+from backend.app.storage import LegacyDatasetError, StorageLimitExceeded, Store
 
 
 def test_refuses_data_inside_repository(monkeypatch, tmp_path):
@@ -51,6 +52,20 @@ def test_store_refuses_writes_past_configured_storage_limit(tmp_path):
     with pytest.raises(StorageLimitExceeded, match="Local storage limit reached"):
         store.append_staged_catalog("limit-run", [{"ticker": "LIMIT", "title": "limit"}])
     store.close()
+
+
+def test_nonempty_pre_v2_cache_is_refused_without_mutating_it(tmp_path):
+    data = tmp_path / "legacy-data"
+    data.mkdir()
+    db = duckdb.connect(str(data / "kalshi.duckdb"))
+    db.execute("CREATE TABLE markets (ticker VARCHAR)")
+    db.execute("INSERT INTO markets VALUES ('legacy')")
+    db.close()
+    with pytest.raises(LegacyDatasetError, match="Clear the configured data directory"):
+        Store(data)
+    check = duckdb.connect(str(data / "kalshi.duckdb"))
+    assert check.execute("SELECT ticker FROM markets").fetchone() == ("legacy",)
+    check.close()
 
 
 @pytest.mark.asyncio

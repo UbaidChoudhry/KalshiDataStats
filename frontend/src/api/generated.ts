@@ -181,6 +181,38 @@ export interface components {
              */
             total_trades: number;
             /**
+             * Aggregate Markets
+             * @default 0
+             */
+            aggregate_markets: number;
+            /**
+             * Raw Markets
+             * @default 0
+             */
+            raw_markets: number;
+            /**
+             * Raw Trades
+             * @default 0
+             */
+            raw_trades: number;
+            /**
+             * Dataset Version
+             * @default 2
+             */
+            dataset_version: string;
+            /**
+             * Scope
+             * @default empty
+             */
+            scope: string;
+            /**
+             * Mve Excluded
+             * @default true
+             */
+            mve_excluded: boolean;
+            /** Legacy Cache Error */
+            legacy_cache_error?: string | null;
+            /**
              * Storage Bytes
              * @default 0
              */
@@ -269,6 +301,16 @@ export interface components {
              * @default 0
              */
             progress_percent: number;
+            /**
+             * Raw Markets
+             * @default 0
+             */
+            raw_markets: number;
+            /**
+             * Raw Trades
+             * @default 0
+             */
+            raw_trades: number;
             /**
              * Breaker Open
              * @default false

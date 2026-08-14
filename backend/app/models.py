@@ -25,6 +25,8 @@ class SyncRun(BaseModel):
     processed_markets: int = 0
     total_markets: int = 0
     progress_percent: float = 0
+    raw_markets: int = 0
+    raw_trades: int = 0
     breaker_open: bool = False
     breaker_seconds_remaining: int = 0
     error: str | None = None
@@ -38,6 +40,13 @@ class DataStatus(BaseModel):
     last_successful_sync: datetime | None = None
     total_markets: int = 0
     total_trades: int = 0
+    aggregate_markets: int = 0
+    raw_markets: int = 0
+    raw_trades: int = 0
+    dataset_version: str = "2"
+    scope: str = "empty"
+    mve_excluded: bool = True
+    legacy_cache_error: str | None = None
     storage_bytes: int = 0
     storage_limit_bytes: int | None = None
 

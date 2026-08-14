@@ -100,10 +100,11 @@ async def test_real_sync_routes_historical_and_live_partitions(monkeypatch, tmp_
     service = SyncService(store, "real", 10, "https://example.test", 9, 2)
     store.start_run("run", Window.ALL.value)
     await service._real("run", Window.ALL)
-    assert calls[0] == ("/historical/markets", {})
+    assert calls[0] == ("/historical/markets", {"mve_filter": "exclude"})
     live_params = dict(calls[1][1])
     assert live_params["status"] == "settled"
     assert live_params["min_settled_ts"] == cutoff.market_settled_ts
+    assert live_params["mve_filter"] == "exclude"
     trade_calls = [call for call in calls if call[0] in {"/historical/trades", "/markets/trades"}]
     assert {path for path, _ in trade_calls} == {"/historical/trades", "/markets/trades"}
     assert all(
@@ -343,11 +344,95 @@ async def test_catalog_cursor_resume_does_not_restart_at_first_page(monkeypatch,
     with pytest.raises(RuntimeError, match="catalog interrupted"):
         await service._real("catalog-resume", Window.ALL)
     assert store.checkpoint("catalog-resume") == {
-        "phase": "catalog", "endpoint": "/historical/markets", "cursor": "second-page"
+        "phase": "catalog", "endpoint": "/historical/markets", "cursor": "second-page",
+        "discovered_markets": 1,
     }
     assert store.current_run()["processed_markets"] == 1
     await service._real("catalog-resume", Window.ALL)
     assert cursors == [None, "second-page"]
     assert store.db.execute("SELECT count(*) FROM markets").fetchone() == (2,)
     assert store.staged_catalog("catalog-resume") == []
+    store.close()
+
+
+@pytest.mark.asyncio
+async def test_compact_run_skips_zero_volume_and_retains_raw_only_for_possible_misses(monkeypatch, tmp_path):
+    cutoff = HistoricalCutoff(2_000_000_000, 2_000_000_100)
+    requested_tickers: list[str] = []
+    markets = [
+        {"ticker": "ZERO", "title": "Zero", "settlement_value_dollars": "1", "volume": 0,
+         "settlement_ts": "2024-01-01T00:00:00Z"},
+        {"ticker": "MISS", "title": "Miss", "settlement_value_dollars": "0", "volume": 2,
+         "settlement_ts": "2024-01-02T00:00:00Z"},
+        {"ticker": "SAFE", "title": "Safe", "settlement_value_dollars": "1", "volume": 2,
+         "settlement_ts": "2024-01-03T00:00:00Z"},
+    ]
+
+    class CompactClient:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def historical_cutoff(self):
+            return cutoff
+
+        async def pages(self, path, params, item_name, start_cursor=None):
+            if path == "/historical/markets":
+                yield (markets, None)
+            elif path == "/markets":
+                yield ([], None)
+            else:
+                requested_tickers.append(params["ticker"])
+                if params["ticker"] == "MISS" and path == "/historical/trades":
+                    yield ([{"trade_id": "m", "yes_price_dollars": ".60", "no_price_dollars": ".40",
+                            "created_time": "2023-12-30T00:00:00Z"}], None)
+                elif params["ticker"] == "SAFE" and path == "/historical/trades":
+                    yield ([{"trade_id": "s", "yes_price_dollars": ".60", "no_price_dollars": ".40",
+                            "created_time": "2023-12-30T00:00:00Z"}], None)
+                else:
+                    yield ([], None)
+
+        async def close(self):
+            return None
+
+    monkeypatch.setattr("backend.app.service.KalshiClient", CompactClient)
+    store = Store(tmp_path / "data")
+    store.start_run("compact", Window.ALL.value)
+    await SyncService(store, "real", 10, "https://example.test", 60, 3)._real("compact", Window.ALL)
+    assert "ZERO" not in requested_tickers
+    assert store.db.execute("SELECT trade_count FROM aggregates WHERE ticker = 'ZERO'").fetchone() == (0,)
+    status = store.status()
+    assert status["aggregate_markets"] == 3
+    assert status["raw_markets"] == 1
+    assert status["raw_trades"] == 1
+    assert len(list((tmp_path / "data" / "datasets").rglob("*.parquet"))) == 1
+    # An unchanged retained miss is copied into the next selected-window run,
+    # rather than being dropped when that run atomically replaces raw storage.
+    store.start_run("reuse", Window.THREE_MONTHS.value)
+    store.stage_catalog_page("reuse", [markets[1]])
+    unchanged = next(store.iter_run_markets("reuse"))
+    assert store.is_market_complete_and_unchanged(unchanged)
+    assert store.copy_existing_market_to_run("reuse", unchanged)
+    store.publish_run("reuse", Window.THREE_MONTHS.value)
+    assert len(list((tmp_path / "data" / "datasets").rglob("*.parquet"))) == 1
+    store.close()
+
+
+def test_selected_window_publishes_atomically_and_prunes_only_after_success(tmp_path):
+    store = Store(tmp_path / "data")
+    old = {"ticker": "OLD", "title": "Old", "settlement_value": 1,
+           "settled_at": "2024-01-01T00:00:00Z"}
+    replacement = {"ticker": "NEW", "title": "New", "settlement_value": 0,
+                   "settled_at": "2024-08-01T00:00:00Z"}
+    store.upsert_markets([old])
+    store.replace_market_trades(old, [])
+    store.start_run("publish", Window.THREE_MONTHS.value)
+    store.stage_catalog_page("publish", [replacement])
+    # Before the publication step, all new work is private to run_* tables.
+    assert store.db.execute("SELECT ticker FROM markets").fetchone() == ("OLD",)
+    store.finalize_run_market("publish", {**replacement, "source_fingerprint": store.db.execute(
+        "SELECT source_fingerprint FROM run_markets WHERE run_id = 'publish'"
+    ).fetchone()[0]})
+    store.publish_run("publish", Window.THREE_MONTHS.value)
+    assert store.db.execute("SELECT ticker FROM markets").fetchone() == ("NEW",)
+    assert store.db.execute("SELECT count(*) FROM run_markets").fetchone() == (0,)
     store.close()

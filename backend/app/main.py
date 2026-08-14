@@ -21,28 +21,36 @@ from .models import (
     Window,
 )
 from .service import SyncService
-from .storage import Store
+from .storage import LegacyDatasetError, Store
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = Settings.from_environment()
-    store = Store(settings.data_dir, max_storage_bytes=settings.max_storage_bytes)
-    store.mark_interrupted_runs_resumable()
     app.state.settings = settings
-    app.state.store = store
-    app.state.sync = SyncService(
-        store,
-        settings.sync_mode,
-        settings.requests_per_second,
-        settings.base_url,
-        settings.pause_seconds,
-        settings.max_pauses,
-    )
+    app.state.store = None
+    app.state.sync = None
+    app.state.legacy_cache_error = None
+    try:
+        store = Store(settings.data_dir, max_storage_bytes=settings.max_storage_bytes)
+        store.mark_interrupted_runs_resumable()
+        app.state.store = store
+        app.state.sync = SyncService(
+            store,
+            settings.sync_mode,
+            settings.requests_per_second,
+            settings.base_url,
+            settings.pause_seconds,
+            settings.max_pauses,
+        )
+    except LegacyDatasetError as exc:
+        # Still serve the local UI so it can give a clear recovery instruction.
+        app.state.legacy_cache_error = str(exc)
     try:
         yield
     finally:
-        store.close()
+        if app.state.store is not None:
+            app.state.store.close()
 
 
 app = FastAPI(title="Kalshi Data Stats", version="0.1.0", lifespan=lifespan)
@@ -50,6 +58,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 
 
 def store() -> Store:
+    if app.state.store is None:
+        raise HTTPException(409, app.state.legacy_cache_error or "Local data store is unavailable")
     return app.state.store
 
 
@@ -60,21 +70,32 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/v1/data/status", response_model=DataStatus)
 async def data_status() -> dict:
+    if app.state.store is None:
+        return {
+            "has_data": False, "dataset_version": "2", "scope": "legacy",
+            "legacy_cache_error": app.state.legacy_cache_error,
+        }
     return store().status()
 
 
 @app.post("/api/v1/sync-runs", status_code=202, response_model=SyncRun)
 async def start_sync(request: SyncRequest) -> SyncRun:
+    if app.state.sync is None:
+        raise HTTPException(409, app.state.legacy_cache_error or "Local data store is unavailable")
     return app.state.sync.create_run(request.window)
 
 
 @app.get("/api/v1/sync-runs/current", response_model=SyncRun | None)
 async def current_sync() -> SyncRun | None:
+    if app.state.sync is None:
+        return None
     return app.state.sync.current_run()
 
 
 @app.post("/api/v1/sync-runs/current/cancel", response_model=SyncRun | None)
 async def cancel_current_sync() -> SyncRun | None:
+    if app.state.sync is None:
+        return None
     return app.state.sync.cancel_current()
 
 

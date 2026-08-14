@@ -41,7 +41,7 @@ def test_custom_band_is_clipped_and_threshold_is_inclusive(tmp_path):
     store.close()
 
 
-def test_settlement_windows_and_mve_inclusion(tmp_path):
+def test_settlement_windows_exclude_mve_combo_markets_defensively(tmp_path):
     store = Store(tmp_path / "data")
     now = datetime.now(UTC)
     markets = [
@@ -56,11 +56,11 @@ def test_settlement_windows_and_mve_inclusion(tmp_path):
     for index, market in enumerate(markets):
         store.replace_market_trades(market, [{"trade_id": str(index), "yes_price": .9,
                                               "no_price": .9, "created_at": now}])
-    assert analytics.summary(store, Window.THREE_MONTHS, 80)["settled_markets"] == 1
-    assert analytics.summary(store, Window.SIX_MONTHS, 80)["settled_markets"] == 2
-    assert analytics.summary(store, Window.ONE_YEAR, 80)["settled_markets"] == 2
-    assert analytics.summary(store, Window.ALL, 80)["settled_markets"] == 3
-    assert analytics.summary(store, Window.THREE_MONTHS, 80)["wrong_markets"] == 1
+    assert analytics.summary(store, Window.THREE_MONTHS, 80)["settled_markets"] == 0
+    assert analytics.summary(store, Window.SIX_MONTHS, 80)["settled_markets"] == 1
+    assert analytics.summary(store, Window.ONE_YEAR, 80)["settled_markets"] == 1
+    assert analytics.summary(store, Window.ALL, 80)["settled_markets"] == 2
+    assert analytics.summary(store, Window.THREE_MONTHS, 80)["wrong_markets"] == 0
     store.close()
 
 
