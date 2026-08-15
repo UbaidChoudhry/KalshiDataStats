@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle, CalendarClock, ChevronLeft, ChevronRight, Clock3, LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-react'
+import { AlertCircle, CalendarClock, ChevronLeft, ChevronRight, Clock3, ExternalLink, LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-react'
 import { api } from '../api/client'
 import { ApiError, type OpenMarket, type OpenMarketsHorizon, type OpenMarketsResponse } from '../api/types'
 
@@ -37,6 +37,12 @@ function formatBid(value: number | null | undefined) {
   if (value == null) return '—'
   const cents = value <= 1 ? value * 100 : value
   return `${Number.isInteger(cents) ? cents : cents.toFixed(1)}¢`
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value == null) return '—'
+  const percent = value <= 1 ? value * 100 : value
+  return `${Number.isInteger(percent) ? percent : percent.toFixed(1)}%`
 }
 
 function formatContracts(value: number | null | undefined) {
@@ -175,11 +181,12 @@ export function OpenMarketsPage() {
 
     <section className="table-panel open-table" aria-labelledby="open-markets-table-heading">
       <header className="table-heading"><div><h2 id="open-markets-table-heading">Soonest-closing opportunities</h2><span>Fixed order: soonest close first · {response.total.toLocaleString()} matching markets</span></div></header>
-      {loading && !data ? <div className="loading-state"><LoaderCircle className="spin" /> Loading open markets</div> : !response.items.length ? <div className="empty-state"><CalendarClock /><div><strong>No open markets match this selection</strong><span>Try a lower threshold or a longer closing horizon.</span></div></div> : <><div className="table-scroll"><table><thead><tr><th>Market</th><th>Favored option</th><th>Best bid</th><th>24h volume</th><th>Liquidity</th><th>Closes in</th><th>Local close time</th></tr></thead><tbody>{response.items.map((market) => <OpenMarketRow key={market.ticker} market={market} now={now} />)}</tbody></table></div><div className="pagination"><span>Page {response.page} of {pageCount}</span><div><button aria-label="Previous page" disabled={response.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft /></button><button aria-label="Next page" disabled={response.page >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}><ChevronRight /></button></div></div></>}
+      {loading && !data ? <div className="loading-state"><LoaderCircle className="spin" /> Loading open markets</div> : !response.items.length ? <div className="empty-state"><CalendarClock /><div><strong>No open markets match this selection</strong><span>Try a lower threshold or a longer closing horizon.</span></div></div> : <><div className="table-scroll"><table><thead><tr><th>Market</th><th>Favored option</th><th>Best bid</th><th>YES %</th><th>NO %</th><th>24h volume</th><th>Liquidity</th><th>Closes in</th><th>Local close time</th></tr></thead><tbody>{response.items.map((market) => <OpenMarketRow key={market.ticker} market={market} now={now} />)}</tbody></table></div><div className="pagination"><span>Page {response.page} of {pageCount}</span><div><button aria-label="Previous page" disabled={response.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft /></button><button aria-label="Next page" disabled={response.page >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}><ChevronRight /></button></div></div></>}
     </section>
   </section>
 }
 
 function OpenMarketRow({ market, now }: { market: OpenMarket; now: number }) {
-  return <tr><td className="market-name"><strong>{market.title}</strong><span>{market.subtitle ?? market.ticker}{market.event_ticker ? ` · ${market.event_ticker}` : ''}</span></td><td><span className="favored-option">{market.qualifying_label}</span>{market.can_close_early && <span className="early-close-badge">May close early</span>}</td><td className="best-bid">{formatBid(market.qualifying_bid_percent)}</td><td>{formatContracts(market.volume_24h)}</td><td>{formatMoney(market.liquidity_dollars)}</td><td>{formatCloseDistance(market.close_at, now)}</td><td>{formatCloseTime(market.close_at)}</td></tr>
+  const kalshiUrl = `https://kalshi.com/markets/${encodeURIComponent(market.ticker)}`
+  return <tr><td className="market-name"><strong>{market.title}</strong><span>{market.subtitle ?? market.ticker}{market.event_ticker ? ` · ${market.event_ticker}` : ''}</span><a className="market-cta" href={kalshiUrl} target="_blank" rel="noreferrer" aria-label={`Open ${market.title} on Kalshi`}>Open in Kalshi <ExternalLink aria-hidden="true" /></a></td><td><span className="favored-option">{market.qualifying_label}</span>{market.can_close_early && <span className="early-close-badge">May close early</span>}</td><td className="best-bid">{formatBid(market.qualifying_bid_percent)}</td><td>{formatPercent(market.yes_bid_percent)}</td><td>{formatPercent(market.no_bid_percent)}</td><td>{formatContracts(market.volume_24h)}</td><td>{formatMoney(market.liquidity_dollars)}</td><td>{formatCloseDistance(market.close_at, now)}</td><td>{formatCloseTime(market.close_at)}</td></tr>
 }

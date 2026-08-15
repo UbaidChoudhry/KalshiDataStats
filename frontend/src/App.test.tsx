@@ -82,6 +82,11 @@ describe('historical dashboard', () => {
     expect(screen.getByText('Will the launch happen this morning?')).toBeInTheDocument()
     expect(screen.getByText('May close early')).toBeInTheDocument()
     expect(screen.getByText('Will the launch happen tomorrow?')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open Will the launch happen this morning? on Kalshi' })).toHaveAttribute('href', 'https://kalshi.com/markets/SOON')
+    expect(screen.getByText('YES %')).toBeInTheDocument()
+    expect(screen.getByText('NO %')).toBeInTheDocument()
+    expect(screen.getByText('92%')).toBeInTheDocument()
+    expect(screen.getByText('8%')).toBeInTheDocument()
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v1/open-markets?threshold=80&horizon=7d&page=1&page_size=50&refresh=false'), expect.anything()))
 
     await user.click(screen.getByRole('button', { name: '90%+' }))
