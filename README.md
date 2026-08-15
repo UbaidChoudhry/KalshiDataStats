@@ -1,12 +1,14 @@
 # Forecast Lens
 
-Forecast Lens is a local analytics dashboard for finding settled Kalshi markets where the eventual losing side traded at a high implied probability. Phase 1 covers historical mispredictions; open-market analysis is intentionally reserved for Phase 2.
+Forecast Lens is a local Kalshi analytics dashboard for finding historical mispredictions and nearby open markets with a high-confidence option.
 
 ## What it measures
 
 A market is counted as a miss when any non-block trade prices the eventual losing side at or above the selected threshold. The 3-month, 6-month, and 1-year filters use settlement time, while every eligible trade across each included market's full lifetime is analyzed. Only ordinary finalized YES/NO markets are included; scalar and multivariate-event (combo) markets are excluded.
 
-The dashboard includes summary statistics, five-point confidence bands, clickable bar-to-market drill-down, custom integer thresholds from 50% to 99%, sorting, and 50-row server-side pagination.
+The historical dashboard includes summary statistics, five-point confidence bands, clickable bar-to-market drill-down, custom integer thresholds from 50% to 99%, sorting, and 50-row server-side pagination.
+
+The Open markets page uses current best bids to find active ordinary YES/NO markets closing within 24 hours, 3 days, 7 days, or 14 days. It is always ordered from the soonest scheduled close to the latest, refreshes once per minute while visible, and never scans all future markets.
 
 ## Local setup
 
@@ -24,7 +26,7 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
-Copy `.env.example` to `.env` only if you want to override defaults. The application does not load secrets and does not require a Kalshi API key for Phase 1.
+Copy `.env.example` to `.env` only if you want to override defaults. The application does not load secrets and does not require a Kalshi API key for these public market-data features.
 
 Launch the production-style single process:
 
@@ -67,6 +69,8 @@ The adopted design combines DuckDB metadata and aggregate queries with Zstandard
 
 Catalog pages are staged and queried in DuckDB instead of accumulated in application memory. A selected-window reload publishes only after it succeeds; then data outside that selected settlement window is pruned. An all-history reload retains all completed coverage. Existing data stays queryable if a load is cancelled, rate limited, or hits the optional storage cap.
 
+Open-market snapshots are separate: they remain in process memory for only 60 seconds and are never written to DuckDB or Parquet. Historical loads and open-market refreshes share the same process-wide request pace and circuit breaker.
+
 - DuckDB alone is simpler, but makes raw partition replacement and recovery less convenient.
 - SQLite is lightweight, but is less suitable for large column-oriented analytical scans.
 - PostgreSQL scales well, but adds an unnecessary local database server and administration burden.
@@ -107,6 +111,8 @@ The committed `frontend/src/api/generated.ts` contract is generated from FastAPI
 schema. With the app running on port 8000, refresh and drift-check it with
 `npm --prefix frontend run check:api`.
 
+`GET /api/v1/open-markets` accepts `threshold`, `horizon`, `page`, `page_size`, and `refresh`. Horizons are limited to `24h`, `3d`, `7d`, and `14d`; there is deliberately no unbounded future-market option.
+
 An active load can be cancelled from the dashboard. The saved catalog cursor and downloaded
 market work remain local, so **Reload data** resumes that same time frame rather than starting over.
 While the catalog is still being scanned, progress reports matching ordinary markets discovered;
@@ -115,7 +121,7 @@ shows the aggregate-market count, retained raw trade count, dataset version, cov
 
 ## Limitations
 
-- Phase 1 does not analyze open markets, stream live prices, trade, place orders, create accounts, or deploy to the cloud.
+- Open-market prices are one-minute REST snapshots, not streaming quotes, and the app does not trade or place orders.
 - Multivariate-event (combo) markets are intentionally excluded to keep the local historical dataset tractable.
 - Kalshi can move records between live and historical API partitions. Each sync reads the current cutoff and routes requests accordingly.
 - Public exchange data can be corrected upstream; reloading refreshes affected finalized markets without deleting unrelated cached coverage.

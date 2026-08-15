@@ -60,6 +60,17 @@ class RequestGovernor:
             self._next_request_at = max(now, self._next_request_at) + self.interval
         if delay:
             await asyncio.sleep(delay)
+            # A concurrent request may have received a 429 while this request
+            # was rate-paced. Recheck immediately before it reaches Kalshi.
+            async with self._lock:
+                now = self.clock()
+                if now < self._open_until:
+                    raise CircuitOpen(max(1, int(self._open_until - now + 0.999)))
+                if self._open_until > 0 and not is_probe:
+                    if self._probe_in_flight:
+                        raise CircuitOpen(1)
+                    self._probe_in_flight = True
+                    return True
         return is_probe
 
     async def record_429(self) -> None:

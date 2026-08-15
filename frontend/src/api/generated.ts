@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/open-markets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open Markets */
+        get: operations["open_markets_api_v1_open_markets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -271,6 +288,109 @@ export interface components {
             total: number;
             /** Pages */
             pages: number;
+        };
+        /** OpenMarket */
+        OpenMarket: {
+            /** Ticker */
+            ticker: string;
+            /** Event Ticker */
+            event_ticker?: string | null;
+            /** Title */
+            title: string;
+            /** Subtitle */
+            subtitle?: string | null;
+            /**
+             * Qualifying Side
+             * @enum {string}
+             */
+            qualifying_side: "yes" | "no" | "both";
+            /** Qualifying Label */
+            qualifying_label: string;
+            /** Qualifying Bid Percent */
+            qualifying_bid_percent: number;
+            /** Yes Bid Percent */
+            yes_bid_percent?: number | null;
+            /** No Bid Percent */
+            no_bid_percent?: number | null;
+            /** Volume 24H */
+            volume_24h?: number | null;
+            /** Liquidity Dollars */
+            liquidity_dollars?: number | null;
+            /**
+             * Close At
+             * Format: date-time
+             */
+            close_at: string;
+            /**
+             * Can Close Early
+             * @default false
+             */
+            can_close_early: boolean;
+        };
+        /**
+         * OpenMarketHorizon
+         * @enum {string}
+         */
+        OpenMarketHorizon: "24h" | "3d" | "7d" | "14d";
+        /** OpenMarketsError */
+        OpenMarketsError: {
+            /**
+             * Code
+             * @default open_markets_unavailable
+             * @constant
+             */
+            code: "open_markets_unavailable";
+            /** Message */
+            message: string;
+            /**
+             * Resumable
+             * @default true
+             */
+            resumable: boolean;
+        };
+        /** OpenMarketsErrorResponse */
+        OpenMarketsErrorResponse: {
+            error: components["schemas"]["OpenMarketsError"];
+            /** Breaker Seconds Remaining */
+            breaker_seconds_remaining: number;
+        };
+        /**
+         * OpenMarketsResponse
+         * @description A non-persistent, point-in-time view of qualifying open contracts.
+         */
+        OpenMarketsResponse: {
+            /** Items */
+            items: components["schemas"]["OpenMarket"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+            /** Pages */
+            pages: number;
+            /** Scanned Markets */
+            scanned_markets: number;
+            /** Matching Markets */
+            matching_markets: number;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /** Refresh State */
+            refresh_state: string;
+            /** Breaker Seconds Remaining */
+            breaker_seconds_remaining: number;
+            /** Next Close At */
+            next_close_at?: string | null;
+            /** Highest Bid */
+            highest_bid?: number | null;
         };
         /** SyncRequest */
         SyncRequest: {
@@ -569,6 +689,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_markets_api_v1_open_markets_get: {
+        parameters: {
+            query?: {
+                threshold?: number;
+                horizon?: components["schemas"]["OpenMarketHorizon"];
+                page?: number;
+                page_size?: number;
+                refresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenMarketsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Live snapshot temporarily unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenMarketsErrorResponse"];
                 };
             };
         };

@@ -13,3 +13,24 @@ test('loads data and drills from a confidence bar into markets', async ({ page }
   await expect(page.getByRole('button', { name: 'Show all bands' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '80–84% confidence misses' })).toBeVisible()
 })
+
+test('shows filtered open markets in soonest-close order', async ({ page }) => {
+  await page.goto('/')
+  const firstRequestPromise = page.waitForRequest((request) => request.url().includes('/api/v1/open-markets?'))
+  await page.getByRole('button', { name: 'Open markets' }).click()
+  await expect(page.getByRole('heading', { name: 'Open markets' })).toBeVisible()
+  const firstRequest = await firstRequestPromise
+  expect(firstRequest.url()).toContain('threshold=80')
+  expect(firstRequest.url()).toContain('horizon=7d')
+
+  const rows = page.locator('.open-table tbody tr')
+  await expect(rows.first()).toBeVisible()
+  await expect(rows).toHaveCount(2)
+  await expect(rows.first().locator('td').nth(5)).not.toHaveText('—')
+  await expect(page.getByText('Fixed order: soonest close first')).toBeVisible()
+
+  const filteredRequest = page.waitForRequest((request) => request.url().includes('/api/v1/open-markets?') && request.url().includes('threshold=90') && request.url().includes('horizon=3d'))
+  await page.getByRole('button', { name: '90%+' }).click()
+  await page.getByLabel('Closing horizon').selectOption('3d')
+  await filteredRequest
+})

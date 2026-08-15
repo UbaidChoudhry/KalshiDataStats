@@ -131,12 +131,29 @@ td:first-child { white-space: normal; }
 .pagination button:disabled { color: var(--muted); cursor: default; opacity: .45; }
 .empty-state strong, .empty-state span { display: block; text-align: center; }
 .empty-state strong { color: var(--ink); }
+.open-markets-page .title-row { margin-bottom: 20px; }
+.open-filters { grid-template-columns: minmax(330px, 1.5fr) minmax(150px, .8fr) minmax(210px, 1fr); }
+.open-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.summary-time { min-height: 29px; font-size: 17px !important; line-height: 1.35; }
+.open-table .table-heading { display: flex; align-items: center; justify-content: space-between; }
+.open-table th:first-child { min-width: 320px; }
+.favored-option, .early-close-badge { display: inline-flex; align-items: center; }
+.favored-option { padding: 3px 7px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; font-weight: 650; }
+.early-close-badge { margin-left: 6px; padding: 3px 6px; color: var(--danger); background: var(--danger-soft); border-radius: 999px; font-size: 10px; font-weight: 650; }
+.best-bid { color: var(--accent); font-weight: 700; }
+.stale-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 13px 15px; color: var(--ink); background: var(--surface-soft); border: 1px solid var(--line); border-radius: 11px; }
+.stale-banner svg { flex: 0 0 auto; color: #b7791f; }
+.stale-banner strong, .stale-banner span { display: block; }
+.stale-banner span { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.circuit-banner { margin-bottom: 14px; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 900px) {
   .layout { grid-template-columns: 178px minmax(0, 1fr); }
   .filters { grid-template-columns: 1fr 1.6fr; }
+  .open-filters { grid-template-columns: 1.6fr 1fr; }
+  .open-filters .dataset-field { grid-column: 1 / -1; }
   .dataset-field { grid-column: 1 / -1; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .local-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -153,6 +170,7 @@ td:first-child { white-space: normal; }
   .primary-button { width: 100%; }
   .cancel-button { flex: 1 1 auto; justify-content: center; }
   .filters { grid-template-columns: 1fr; }
+  .open-filters { grid-template-columns: 1fr; }
   .dataset-field { grid-column: auto; }
   .sync-banner { align-items: stretch; flex-direction: column; }
   .sync-banner progress { width: 100%; }

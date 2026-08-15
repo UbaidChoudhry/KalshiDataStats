@@ -20,11 +20,15 @@ class SyncService:
         base_url: str,
         pause_seconds: int,
         max_pauses: int,
+        governor: RequestGovernor | None = None,
     ):
         self.store = store
         self.mode = mode
         self.base_url = base_url
-        self.governor = RequestGovernor(requests_per_second, pause_seconds, max_pauses)
+        # Direct construction remains useful for isolated sync tests. The app
+        # injects its single process-wide governor so live catalog and history
+        # cannot independently exceed Kalshi's rate limit.
+        self.governor = governor or RequestGovernor(requests_per_second, pause_seconds, max_pauses)
         self.task: asyncio.Task[None] | None = None
         self.run_id: str | None = None
 

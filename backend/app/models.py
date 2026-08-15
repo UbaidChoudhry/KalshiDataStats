@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -11,6 +12,13 @@ class Window(StrEnum):
     SIX_MONTHS = "6m"
     ONE_YEAR = "1y"
     ALL = "all"
+
+
+class OpenMarketHorizon(StrEnum):
+    ONE_DAY = "24h"
+    THREE_DAYS = "3d"
+    SEVEN_DAYS = "7d"
+    FOURTEEN_DAYS = "14d"
 
 
 class SyncRequest(BaseModel):
@@ -87,3 +95,48 @@ class MissesResponse(BaseModel):
     page_size: int
     total: int
     pages: int
+
+
+class OpenMarket(BaseModel):
+    ticker: str
+    event_ticker: str | None = None
+    title: str
+    subtitle: str | None = None
+    qualifying_side: Literal["yes", "no", "both"]
+    qualifying_label: str
+    qualifying_bid_percent: float
+    yes_bid_percent: float | None = None
+    no_bid_percent: float | None = None
+    volume_24h: float | None = None
+    liquidity_dollars: float | None = None
+    close_at: datetime
+    can_close_early: bool = False
+
+
+class OpenMarketsResponse(BaseModel):
+    """A non-persistent, point-in-time view of qualifying open contracts."""
+
+    items: list[OpenMarket]
+    page: int
+    page_size: int
+    total: int
+    pages: int
+    scanned_markets: int
+    matching_markets: int
+    as_of: datetime
+    stale: bool = False
+    refresh_state: str
+    breaker_seconds_remaining: int = Field(ge=0)
+    next_close_at: datetime | None = None
+    highest_bid: float | None = None
+
+
+class OpenMarketsError(BaseModel):
+    code: Literal["open_markets_unavailable"] = "open_markets_unavailable"
+    message: str
+    resumable: bool = True
+
+
+class OpenMarketsErrorResponse(BaseModel):
+    error: OpenMarketsError
+    breaker_seconds_remaining: int = Field(ge=0)

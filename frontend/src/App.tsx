@@ -4,6 +4,7 @@ import { api } from './api/client'
 import type { ConfidenceBand, DataStatus, MissesResponse, Summary, SyncRun, WindowKey } from './api/types'
 import { ConfidenceChart } from './components/ConfidenceChart'
 import { MissesTable } from './components/MissesTable'
+import { OpenMarketsPage } from './components/OpenMarketsPage'
 
 const WINDOW_LABELS: Record<WindowKey, string> = { '3m': 'Last 3 months', '6m': 'Last 6 months', '1y': 'Last year', all: 'All available' }
 const emptySummary: Summary = { window: '1y', threshold: 80, settled_markets: 0, crossed_markets: 0, wrong_markets: 0, miss_rate: null }
@@ -11,7 +12,7 @@ const emptyMisses: MissesResponse = { items: [], page: 1, page_size: 50, total: 
 const idleSync: SyncRun = { id: 'idle', status: 'idle', stage: 'Idle', window: '1y', processed_markets: 0, total_markets: 0, progress_percent: 0, raw_markets: 0, raw_trades: 0, breaker_open: false, breaker_seconds_remaining: 0, error: null, resumable: false }
 
 function App() {
-  const [activePage, setActivePage] = useState<'history' | 'data'>('history')
+  const [activePage, setActivePage] = useState<'history' | 'open' | 'data'>('history')
   const [windowKey, setWindowKey] = useState<WindowKey>('1y')
   const [threshold, setThreshold] = useState(80)
   const [customThreshold, setCustomThreshold] = useState('')
@@ -146,12 +147,12 @@ function App() {
         : 'Preparing download…'
 
   return <div className="app-shell">
-    <header className="topbar"><div className="brand"><span><ScanLine /></span>Forecast Lens</div><div className="local-status"><i />{isSyncing ? sync.stage : dataStatus?.has_data ? 'Local data ready' : 'Awaiting first load'}</div></header>
-    <div className="mobile-context"><History /> Historical misses <span>• Phase 1</span></div>
+    <header className="topbar"><div className="brand"><span><ScanLine /></span>Forecast Lens</div><div className="local-status"><i />{activePage === 'open' ? 'Live market view' : isSyncing ? sync.stage : dataStatus?.has_data ? 'Local data ready' : 'Awaiting first load'}</div></header>
+    <div className="mobile-context">{activePage === 'open' ? <><RadioTower /> Open markets <span>• Live view</span></> : activePage === 'data' ? <><Database /> Local data</> : <><History /> Historical misses <span>• Phase 1</span></>}</div>
     <div className="layout">
-      <aside className="sidebar"><p>Analyze</p><button className={activePage === 'history' ? 'nav-active' : ''} onClick={() => setActivePage('history')}><History />Historical misses</button><button disabled><RadioTower />Open markets <small>NEXT</small></button><p>Manage</p><button className={activePage === 'data' ? 'nav-active' : ''} onClick={() => setActivePage('data')}><Database />Local data</button><button><Settings2 />Settings</button><div className="storage-note"><strong>Stored on this Mac</strong><span>Market history stays outside the repository. API pace is configured locally.</span></div></aside>
+      <aside className="sidebar"><p>Analyze</p><button className={activePage === 'history' ? 'nav-active' : ''} onClick={() => setActivePage('history')}><History />Historical misses</button><button className={activePage === 'open' ? 'nav-active' : ''} onClick={() => setActivePage('open')}><RadioTower />Open markets</button><p>Manage</p><button className={activePage === 'data' ? 'nav-active' : ''} onClick={() => setActivePage('data')}><Database />Local data</button><button><Settings2 />Settings</button><div className="storage-note"><strong>Stored on this Mac</strong><span>Market history stays outside the repository. API pace is configured locally.</span></div></aside>
       <main>
-        {activePage === 'data' ? <section className="data-page" aria-labelledby="local-data-heading">
+        {activePage === 'open' ? <OpenMarketsPage /> : activePage === 'data' ? <section className="data-page" aria-labelledby="local-data-heading">
           <div className="title-row"><div><h1 id="local-data-heading">Local data</h1><p>Inspect the cached Kalshi dataset stored only on this Mac.</p></div><div className="title-actions">{isSyncing && <button className="secondary-button cancel-button" disabled={cancelling} onClick={cancelSync}>{cancelling ? <LoaderCircle className="spin" /> : <XCircle />}{cancelling ? 'Cancelling…' : 'Cancel load'}</button>}<button className="primary-button" disabled={isSyncing || Boolean(legacyCacheError)} onClick={startSync}>{isSyncing ? <LoaderCircle className="spin" /> : <RefreshCw />}{isSyncing ? 'Loading…' : legacyCacheError ? 'Update cache first' : 'Load selected window'}</button></div></div>
           {legacyCacheError && <div className="error-banner" role="alert"><AlertCircle /><div><strong>Local cache needs an update</strong><span>{legacyCacheError} Stop the app, move or delete the folder set by KALSHI_DATA_DIR, then start it and load data again.</span></div></div>}
           {isSyncing && <div className="sync-banner" role="status"><div><strong>{sync.status === 'breaker_open' ? `Rate limited — retrying in ${sync.breaker_seconds_remaining}s` : sync.stage}</strong><span>{syncProgress}</span></div><progress max="100" value={sync.total_markets > 0 ? sync.progress_percent : undefined} /></div>}

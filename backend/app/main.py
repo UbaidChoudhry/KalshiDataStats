@@ -6,20 +6,25 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import analytics
 from .config import Settings
+from .kalshi import RequestGovernor
 from .models import (
     BandsResponse,
     DataStatus,
     HistorySummary,
     MissesResponse,
+    OpenMarketHorizon,
+    OpenMarketsErrorResponse,
+    OpenMarketsResponse,
     SyncRequest,
     SyncRun,
     Window,
 )
+from .open_markets import OpenMarketService, OpenMarketsUnavailable
 from .service import SyncService
 from .storage import LegacyDatasetError, Store
 
@@ -30,6 +35,12 @@ async def lifespan(app: FastAPI):
     app.state.settings = settings
     app.state.store = None
     app.state.sync = None
+    app.state.request_governor = RequestGovernor(
+        settings.requests_per_second, settings.pause_seconds, settings.max_pauses
+    )
+    app.state.open_markets = OpenMarketService(
+        settings.sync_mode, settings.base_url, app.state.request_governor
+    )
     app.state.legacy_cache_error = None
     try:
         store = Store(settings.data_dir, max_storage_bytes=settings.max_storage_bytes)
@@ -42,6 +53,7 @@ async def lifespan(app: FastAPI):
             settings.base_url,
             settings.pause_seconds,
             settings.max_pauses,
+            governor=app.state.request_governor,
         )
     except LegacyDatasetError as exc:
         # Still serve the local UI so it can give a clear recovery instruction.
@@ -123,6 +135,37 @@ async def history_misses(
     if min_percent is not None and max_percent is not None and min_percent > max_percent:
         raise HTTPException(422, "min_percent cannot exceed max_percent")
     return analytics.misses(store(), window, threshold, min_percent, max_percent, page, page_size, sort, direction)
+
+
+@app.get(
+    "/api/v1/open-markets",
+    response_model=OpenMarketsResponse,
+    responses={503: {"model": OpenMarketsErrorResponse, "description": "Live snapshot temporarily unavailable"}},
+)
+async def open_markets(
+    threshold: int = Query(80, ge=50, le=99),
+    horizon: OpenMarketHorizon = OpenMarketHorizon.SEVEN_DAYS,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=50),
+    refresh: bool = False,
+) -> OpenMarketsResponse | JSONResponse:
+    try:
+        return await app.state.open_markets.list(horizon.value, threshold, page, page_size, refresh)
+    except OpenMarketsUnavailable as exc:
+        # Keep errors out of FastAPI's opaque `detail` wrapper so the client can
+        # resume a refresh using the same countdown field as a stale response.
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+            content={
+                "error": {
+                    "code": "open_markets_unavailable",
+                    "message": str(exc),
+                    "resumable": True,
+                },
+                "breaker_seconds_remaining": exc.retry_after_seconds,
+            },
+        )
 
 
 # The production build is optional during backend-only development. When present, one local
