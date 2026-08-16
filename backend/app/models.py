@@ -100,6 +100,7 @@ class MissesResponse(BaseModel):
 class OpenMarket(BaseModel):
     ticker: str
     event_ticker: str | None = None
+    category: str = "Other"
     title: str
     subtitle: str | None = None
     qualifying_side: Literal["yes", "no", "both"]

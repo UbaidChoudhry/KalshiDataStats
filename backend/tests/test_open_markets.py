@@ -8,7 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.kalshi import CircuitOpen, KalshiClient, RequestGovernor
-from backend.app.open_markets import OpenMarketService, OpenMarketsUnavailable, slugify, to_market
+from backend.app.open_markets import (
+    OpenMarketService,
+    OpenMarketsUnavailable,
+    normalize_category,
+    slugify,
+    to_market,
+)
 
 
 def close_after(hours: int) -> str:
@@ -20,6 +26,7 @@ def market(ticker: str, close_time: str, yes: str | None, no: str | None, **extr
         "ticker": ticker,
         "event_ticker": f"EVENT-{ticker}",
         "title": ticker,
+        "category": "Sports",
         "status": "active",
         "market_type": "binary",
         "close_time": close_time,
@@ -221,6 +228,38 @@ def test_naive_close_times_are_normalized_to_utc():
     item = to_market(market("NAIVE", "2026-08-16T12:00:00", "0.81", "0.19"))
     assert item is not None
     assert item.close_at.tzinfo == UTC
+
+
+@pytest.mark.asyncio
+async def test_categories_are_enriched_in_event_batches_and_cached(monkeypatch):
+    calls = []
+    raw = market("ELECTION", close_after(24), "0.90", "0.10")
+    raw.pop("category")
+    raw["event_ticker"] = "EVENT-ELECTION"
+
+    class Client:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def pages(self, *_args):
+            yield [raw], None
+
+        async def get(self, path, params):
+            calls.append((path, params))
+            return {"events": [{"event_ticker": "EVENT-ELECTION", "category": "Elections"}], "cursor": None}
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("backend.app.open_markets.KalshiClient", Client)
+    service = OpenMarketService("real", "https://example.test", RequestGovernor(100))
+    first = await service.list("7d", 80, 1, 50)
+    assert first.items[0].category == "Elections"
+    assert calls == [("/events", {"tickers": "EVENT-ELECTION", "limit": 200})]
+    await service.list("7d", 80, 1, 50, refresh=True)
+    assert len(calls) == 1
+    assert normalize_category("Sport") == "Sports"
+    assert normalize_category("Unknown") == "Other"
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,10 @@ from .models import OpenMarket, OpenMarketsResponse
 
 HORIZONS = {"24h": 24 * 60 * 60, "3d": 3 * 24 * 60 * 60, "7d": 7 * 24 * 60 * 60, "14d": 14 * 24 * 60 * 60}
 CACHE_SECONDS = 60
+DISPLAY_CATEGORIES = (
+    "Elections", "Politics", "Culture", "Sports", "Crypto", "Commodities",
+    "Climate", "Economics", "Mentions", "Finance", "Tech & Science",
+)
 
 
 class OpenMarketsUnavailable(RuntimeError):
@@ -58,6 +62,7 @@ class OpenMarketService:
         self._event_links: dict[str, str] = {}
         self._event_link_locks: dict[str, asyncio.Lock] = {}
         self._series_slugs: dict[str, str] = {}
+        self._event_categories: dict[str, str] = {}
 
     async def list(
         self, horizon: str, threshold: int, page: int, page_size: int, refresh: bool = False
@@ -112,6 +117,7 @@ class OpenMarketService:
             try:
                 async for markets, _cursor in client.pages("/markets", params, "markets"):
                     values.extend(markets)
+                await self._populate_categories(values, client)
             finally:
                 await client.close()
         selected: list[OpenMarket] = []
@@ -122,6 +128,36 @@ class OpenMarketService:
                     selected.append(item)
         selected.sort(key=lambda item: (item.close_at, -item.qualifying_bid_percent, item.ticker))
         return _Snapshot(tuple(selected), len(values), datetime.now(UTC), self.clock())
+
+    async def _populate_categories(self, markets: list[dict[str, Any]], client: KalshiClient) -> None:
+        """Attach event categories in a few batched requests, never one request per market."""
+        event_tickers = {
+            str(market.get("event_ticker", "")).strip().upper()
+            for market in markets
+            if active_ordinary_binary(market)
+            and market.get("category") is None
+            and market.get("event_ticker")
+        }
+        missing = sorted(event_tickers - self._event_categories.keys())
+        for start in range(0, len(missing), 100):
+            tickers = missing[start:start + 100]
+            cursor: str | None = None
+            while True:
+                params: dict[str, Any] = {"tickers": ",".join(tickers), "limit": 200}
+                if cursor:
+                    params["cursor"] = cursor
+                payload = await client.get("/events", params)
+                for event in payload.get("events", []):
+                    ticker = str(event.get("event_ticker", "")).strip().upper()
+                    if ticker:
+                        self._event_categories[ticker] = normalize_category(event.get("category"))
+                cursor = payload.get("cursor") or None
+                if cursor is None:
+                    break
+        for market in markets:
+            if market.get("category") is None:
+                event_ticker = str(market.get("event_ticker", "")).strip().upper()
+                market["category"] = self._event_categories.get(event_ticker, "Other")
 
     def _page(
         self,
@@ -232,6 +268,7 @@ def to_market(market: dict[str, Any]) -> OpenMarket | None:
     return OpenMarket(
         ticker=str(market.get("ticker", "")),
         event_ticker=market.get("event_ticker"),
+        category=normalize_category(market.get("category")),
         title=str(market.get("title") or market.get("subtitle") or market.get("ticker", "")),
         subtitle=market.get("subtitle"),
         qualifying_side=qualifying_side,
@@ -287,23 +324,36 @@ def slugify(value: str) -> str:
     return "-".join(part for part in "".join(characters).split())
 
 
+def normalize_category(value: Any) -> str:
+    candidate = str(value or "").strip()
+    if candidate.casefold() == "sport":
+        candidate = "Sports"
+    for category in DISPLAY_CATEGORIES:
+        if candidate.casefold() == category.casefold():
+            return category
+    return "Other"
+
+
 def demo_open_markets(now: datetime) -> list[dict[str, Any]]:
     """Fixed Phase 2 sample data: deterministic across restarts and test runs."""
     return [
         {
             "ticker": "KXDEMO-OPEN-RAIN", "event_ticker": "KXDEMO-WEATHER", "title": "Will rainfall exceed 2 inches?",
+            "category": "Climate",
             "status": "active", "market_type": "binary", "yes_sub_title": "Over 2 inches", "no_sub_title": "2 inches or less",
             "yes_bid_dollars": "0.91", "no_bid_dollars": "0.09", "volume_24h_fp": "142.50", "liquidity_dollars": "740.00",
             "close_time": (now.replace(microsecond=0) + timedelta(hours=12)).isoformat(), "can_close_early": True,
         },
         {
             "ticker": "KXDEMO-OPEN-RATE", "event_ticker": "KXDEMO-RATES", "title": "Will the rate hold steady?",
+            "category": "Economics",
             "status": "active", "market_type": "binary", "yes_sub_title": "Hold steady", "no_sub_title": "Change",
             "yes_bid_dollars": "0.80", "no_bid_dollars": "0.80", "volume_24h_fp": "90", "liquidity_dollars": "610",
             "close_time": (now.replace(microsecond=0) + timedelta(days=2)).isoformat(), "can_close_early": False,
         },
         {
             "ticker": "KXDEMO-OPEN-LOW", "event_ticker": "KXDEMO-LOW", "title": "Low confidence example",
+            "category": "Culture",
             "status": "active", "market_type": "binary", "yes_bid_dollars": "0.60", "no_bid_dollars": "0.40",
             "close_time": (now.replace(microsecond=0) + timedelta(days=3)).isoformat(),
         },

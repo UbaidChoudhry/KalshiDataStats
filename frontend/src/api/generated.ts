@@ -312,6 +312,11 @@ export interface components {
             ticker: string;
             /** Event Ticker */
             event_ticker?: string | null;
+            /**
+             * Category
+             * @default Other
+             */
+            category: string;
             /** Title */
             title: string;
             /** Subtitle */

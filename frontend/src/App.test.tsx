@@ -14,8 +14,8 @@ const markets = [
 ]
 const openMarkets = {
   items: [
-    { ticker: 'SOON', event_ticker: 'EVENT-SOON', title: 'Will the launch happen this morning?', subtitle: 'Morning launch', qualifying_side: 'yes', qualifying_label: 'Yes', qualifying_bid_percent: 92, yes_bid_percent: 92, no_bid_percent: 8, volume_24h: 12345, liquidity_dollars: 4200, close_at: '2026-08-15T12:00:00Z', can_close_early: true },
-    { ticker: 'LATER', event_ticker: 'EVENT-LATER', title: 'Will the launch happen tomorrow?', subtitle: 'Tomorrow launch', qualifying_side: 'no', qualifying_label: 'No', qualifying_bid_percent: 85, yes_bid_percent: 15, no_bid_percent: 85, volume_24h: 3400, liquidity_dollars: 1200, close_at: '2026-08-16T12:00:00Z', can_close_early: false },
+    { ticker: 'SOON', event_ticker: 'EVENT-SOON', category: 'Politics', title: 'Will the launch happen this morning?', subtitle: 'Morning launch', qualifying_side: 'yes', qualifying_label: 'Yes', qualifying_bid_percent: 92, yes_bid_percent: 92, no_bid_percent: 8, volume_24h: 12345, liquidity_dollars: 4200, close_at: '2026-08-15T12:00:00Z', can_close_early: true },
+    { ticker: 'LATER', event_ticker: 'EVENT-LATER', category: 'Sports', title: 'Will the launch happen tomorrow?', subtitle: 'Tomorrow launch', qualifying_side: 'no', qualifying_label: 'No', qualifying_bid_percent: 85, yes_bid_percent: 15, no_bid_percent: 85, volume_24h: 3400, liquidity_dollars: 1200, close_at: '2026-08-16T12:00:00Z', can_close_early: false },
   ],
   page: 1, page_size: 50, total: 2, pages: 1, scanned_markets: 4, matching_markets: 2,
   next_close_at: '2026-08-15T12:00:00Z', highest_bid: 92, as_of: '2026-08-14T12:00:00Z', stale: false, refresh_state: 'live', breaker_seconds_remaining: 0,
@@ -83,6 +83,8 @@ describe('historical dashboard', () => {
     expect(screen.getByText('Will the launch happen this morning?')).toBeInTheDocument()
     expect(screen.getByText('May close early')).toBeInTheDocument()
     expect(screen.getByText('Will the launch happen tomorrow?')).toBeInTheDocument()
+    expect(screen.getByText('Politics')).toBeInTheDocument()
+    expect(screen.getByText('Sports')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open Will the launch happen this morning? on Kalshi' })).toBeInTheDocument()
     expect(screen.getByText('YES %')).toBeInTheDocument()
     expect(screen.getByText('NO %')).toBeInTheDocument()
@@ -107,6 +109,26 @@ describe('historical dashboard', () => {
     expect(replace).toHaveBeenCalledWith('https://kalshi.com/markets/kxpgatour/pga-tour/kxpgatour-fesjc26')
     expect(popup.opener).toBeNull()
     open.mockRestore()
+  })
+
+  it('places markets closing within fifteen minutes above their category groups', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input)
+      const soon = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      const later = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      const payload = url.includes('/open-markets') ? {
+        ...openMarkets,
+        items: [
+          { ...openMarkets.items[0], category: 'Crypto', close_at: soon },
+          { ...openMarkets.items[1], category: 'Finance', close_at: later },
+        ],
+      } : openMarkets
+      return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    render(<OpenMarketsPage />)
+    expect(await screen.findByText('Closing in the next 15 minutes')).toBeInTheDocument()
+    expect(screen.getByText('Finance')).toBeInTheDocument()
+    expect(screen.queryByText('Crypto')).not.toBeInTheDocument()
   })
 
   it('keeps cached results visible when open-market data is stale', async () => {
@@ -141,7 +163,7 @@ describe('historical dashboard', () => {
     render(<OpenMarketsPage />)
     expect(await screen.findByText('Hold steady / Change')).toBeInTheDocument()
     expect(screen.getByText('80.5¢')).toBeInTheDocument()
-    expect(document.querySelectorAll('.open-table tbody tr')).toHaveLength(1)
+    expect(document.querySelectorAll('.open-table tbody tr:not(.market-group-row)')).toHaveLength(1)
   })
 
   it('keeps a newer open-market response when an older request resolves late', async () => {

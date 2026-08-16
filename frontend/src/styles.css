@@ -143,6 +143,9 @@ td:first-child { white-space: normal; }
 .summary-time { min-height: 29px; font-size: 17px !important; line-height: 1.35; }
 .open-table .table-heading { display: flex; align-items: center; justify-content: space-between; }
 .open-table th:first-child { min-width: 320px; }
+.market-group-row th { padding: 10px 14px; color: var(--ink); background: var(--surface-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: 11px; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
+.market-group-row:first-child th { border-top: 0; }
+.market-group-row th span { margin-left: 8px; color: var(--muted); font-size: 10px; font-weight: 500; letter-spacing: normal; text-transform: none; }
 .favored-option, .early-close-badge { display: inline-flex; align-items: center; }
 .favored-option { padding: 3px 7px; color: var(--accent); background: var(--accent-soft); border-radius: 999px; font-weight: 650; }
 .early-close-badge { margin-left: 6px; padding: 3px 6px; color: var(--danger); background: var(--danger-soft); border-radius: 999px; font-size: 10px; font-weight: 650; }
