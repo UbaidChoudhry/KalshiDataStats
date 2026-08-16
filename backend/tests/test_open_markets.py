@@ -236,13 +236,16 @@ async def test_categories_are_enriched_in_event_batches_and_cached(monkeypatch):
     raw = market("ELECTION", close_after(24), "0.90", "0.10")
     raw.pop("category")
     raw["event_ticker"] = "EVENT-ELECTION"
+    outside_window = market("OUTSIDE", close_after(10 * 24), "0.90", "0.10")
+    outside_window.pop("category")
+    outside_window["event_ticker"] = "EVENT-OUTSIDE"
 
     class Client:
         def __init__(self, *_args, **_kwargs):
             pass
 
         async def pages(self, *_args):
-            yield [raw], None
+            yield [raw, outside_window], None
 
         async def get(self, path, params):
             calls.append((path, params))

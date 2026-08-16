@@ -130,6 +130,8 @@ class OpenMarketsResponse(BaseModel):
     pages: int
     scanned_markets: int
     matching_markets: int
+    category_counts: dict[str, int] = Field(default_factory=dict)
+    closing_soon_markets: int = 0
     as_of: datetime
     stale: bool = False
     refresh_state: str

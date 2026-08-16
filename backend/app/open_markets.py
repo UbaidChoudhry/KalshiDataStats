@@ -16,6 +16,7 @@ from .models import OpenMarket, OpenMarketsResponse
 
 HORIZONS = {"24h": 24 * 60 * 60, "3d": 3 * 24 * 60 * 60, "7d": 7 * 24 * 60 * 60, "14d": 14 * 24 * 60 * 60}
 CACHE_SECONDS = 60
+CLOSING_SOON_SECONDS = 15 * 60
 DISPLAY_CATEGORIES = (
     "Elections", "Politics", "Culture", "Sports", "Crypto", "Commodities",
     "Climate", "Economics", "Mentions", "Finance", "Tech & Science",
@@ -65,11 +66,11 @@ class OpenMarketService:
         self._event_categories: dict[str, str] = {}
 
     async def list(
-        self, horizon: str, threshold: int, page: int, page_size: int, refresh: bool = False
+        self, horizon: str, threshold: int, page: int, page_size: int, refresh: bool = False, category: str = "all"
     ) -> OpenMarketsResponse:
         observed = self._cache.get(horizon)
         if observed is not None and self._age(observed) < CACHE_SECONDS and not refresh:
-            return self._page(observed, threshold, page, page_size, stale=False, state="cached")
+            return self._page(observed, threshold, page, page_size, category, stale=False, state="cached")
         # A refresh is still a single flight: callers that began while the first
         # refresh was in progress reuse the snapshot that it just produced.
         async with self._locks[horizon]:
@@ -77,13 +78,13 @@ class OpenMarketService:
             if snapshot is not None and self._age(snapshot) < CACHE_SECONDS and (
                 not refresh or snapshot is not observed
             ):
-                return self._page(snapshot, threshold, page, page_size, stale=False, state="cached")
+                return self._page(snapshot, threshold, page, page_size, category, stale=False, state="cached")
             try:
                 snapshot = await self._fetch(horizon)
             except (CircuitOpen, CircuitExhausted, httpx.HTTPError) as exc:
                 previous = self._cache.get(horizon)
                 if previous is not None:
-                    return self._page(previous, threshold, page, page_size, stale=True, state="stale")
+                    return self._page(previous, threshold, page, page_size, category, stale=True, state="stale")
                 seconds = await self.governor.seconds_remaining()
                 # Transient non-circuit errors still receive a resumable, bounded retry signal.
                 raise OpenMarketsUnavailable(str(exc), max(1, seconds)) from exc
@@ -93,6 +94,7 @@ class OpenMarketService:
                 threshold,
                 page,
                 page_size,
+                category,
                 stale=False,
                 state="refreshed" if refresh else "fresh",
             )
@@ -117,7 +119,7 @@ class OpenMarketService:
             try:
                 async for markets, _cursor in client.pages("/markets", params, "markets"):
                     values.extend(markets)
-                await self._populate_categories(values, client)
+                await self._populate_categories(values, client, started_at, max_close_at)
             finally:
                 await client.close()
         selected: list[OpenMarket] = []
@@ -129,7 +131,9 @@ class OpenMarketService:
         selected.sort(key=lambda item: (item.close_at, -item.qualifying_bid_percent, item.ticker))
         return _Snapshot(tuple(selected), len(values), datetime.now(UTC), self.clock())
 
-    async def _populate_categories(self, markets: list[dict[str, Any]], client: KalshiClient) -> None:
+    async def _populate_categories(
+        self, markets: list[dict[str, Any]], client: KalshiClient, started_at: datetime, max_close_at: datetime
+    ) -> None:
         """Attach event categories in a few batched requests, never one request per market."""
         event_tickers = {
             str(market.get("event_ticker", "")).strip().upper()
@@ -137,10 +141,12 @@ class OpenMarketService:
             if active_ordinary_binary(market)
             and market.get("category") is None
             and market.get("event_ticker")
+            and (close_at := parse_time(market.get("close_time"))) is not None
+            and started_at <= close_at <= max_close_at
         }
         missing = sorted(event_tickers - self._event_categories.keys())
-        for start in range(0, len(missing), 100):
-            tickers = missing[start:start + 100]
+        for start in range(0, len(missing), 200):
+            tickers = missing[start:start + 200]
             cursor: str | None = None
             while True:
                 params: dict[str, Any] = {"tickers": ",".join(tickers), "limit": 200}
@@ -155,7 +161,8 @@ class OpenMarketService:
                 if cursor is None:
                     break
         for market in markets:
-            if market.get("category") is None:
+            close_at = parse_time(market.get("close_time"))
+            if market.get("category") is None and close_at is not None and started_at <= close_at <= max_close_at:
                 event_ticker = str(market.get("event_ticker", "")).strip().upper()
                 market["category"] = self._event_categories.get(event_ticker, "Other")
 
@@ -165,11 +172,20 @@ class OpenMarketService:
         threshold: int,
         page: int,
         page_size: int,
+        category: str,
         *,
         stale: bool,
         state: str,
     ) -> OpenMarketsResponse:
         matches = [market for market in snapshot.markets if market.qualifying_bid_percent >= threshold]
+        category_counts = {name: sum(market.category == name for market in matches) for name in DISPLAY_CATEGORIES}
+        category_counts["Other"] = sum(market.category == "Other" for market in matches)
+        now = datetime.now(UTC)
+        closing_soon = [market for market in matches if now <= market.close_at <= now + timedelta(seconds=CLOSING_SOON_SECONDS)]
+        if category == "closing_soon":
+            matches = closing_soon
+        elif category != "all":
+            matches = [market for market in matches if market.category == category]
         total = len(matches)
         pages = math.ceil(total / page_size) if total else 0
         start = (page - 1) * page_size
@@ -181,6 +197,8 @@ class OpenMarketService:
             pages=pages,
             scanned_markets=snapshot.scanned_markets,
             matching_markets=total,
+            category_counts=category_counts,
+            closing_soon_markets=len(closing_soon),
             as_of=snapshot.as_of,
             stale=stale,
             refresh_state=state,
@@ -332,6 +350,18 @@ def normalize_category(value: Any) -> str:
         if candidate.casefold() == category.casefold():
             return category
     return "Other"
+
+
+def category_filter(value: str) -> str | None:
+    candidate = value.strip()
+    if candidate.casefold() == "all":
+        return "all"
+    if candidate.casefold() in {"closing_soon", "next_15_minutes"}:
+        return "closing_soon"
+    normalized = normalize_category(candidate)
+    if normalized == "Other" and candidate.casefold() != "other":
+        return None
+    return normalized
 
 
 def demo_open_markets(now: datetime) -> list[dict[str, Any]]:

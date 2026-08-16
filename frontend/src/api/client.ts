@@ -61,6 +61,7 @@ export const api = {
     page: number
     pageSize: number
     refresh: boolean
+    category: string
     signal?: AbortSignal
   }) => {
     const query = new URLSearchParams({
@@ -68,6 +69,7 @@ export const api = {
       horizon: params.horizon,
       page: String(params.page),
       page_size: String(params.pageSize),
+      category: params.category,
       refresh: String(params.refresh),
     })
     return request<OpenMarketsResponse>(`/open-markets?${query}`, { signal: params.signal })

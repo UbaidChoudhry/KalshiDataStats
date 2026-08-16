@@ -403,6 +403,15 @@ export interface components {
             scanned_markets: number;
             /** Matching Markets */
             matching_markets: number;
+            /** Category Counts */
+            category_counts?: {
+                [key: string]: number;
+            };
+            /**
+             * Closing Soon Markets
+             * @default 0
+             */
+            closing_soon_markets: number;
             /**
              * As Of
              * Format: date-time
@@ -730,6 +739,7 @@ export interface operations {
                 horizon?: components["schemas"]["OpenMarketHorizon"];
                 page?: number;
                 page_size?: number;
+                category?: string;
                 refresh?: boolean;
             };
             header?: never;

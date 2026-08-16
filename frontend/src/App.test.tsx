@@ -90,11 +90,11 @@ describe('historical dashboard', () => {
     expect(screen.getByText('NO %')).toBeInTheDocument()
     expect(screen.getByText('92%')).toBeInTheDocument()
     expect(screen.getByText('8%')).toBeInTheDocument()
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v1/open-markets?threshold=80&horizon=7d&page=1&page_size=50&refresh=false'), expect.anything()))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v1/open-markets?threshold=80&horizon=7d&page=1&page_size=50&category=all&refresh=false'), expect.anything()))
 
     await user.click(screen.getByRole('button', { name: '90%+' }))
     await user.selectOptions(screen.getByLabelText('Closing horizon'), '3d')
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('threshold=90&horizon=3d&page=1&page_size=50&refresh=false'), expect.anything()))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('threshold=90&horizon=3d&page=1&page_size=50&category=all&refresh=false'), expect.anything()))
   })
 
   it('resolves the canonical Kalshi event page only when its CTA is clicked', async () => {
@@ -111,7 +111,7 @@ describe('historical dashboard', () => {
     open.mockRestore()
   })
 
-  it('places markets closing within fifteen minutes above their category groups', async () => {
+  it('shows categories and the next-fifteen-minutes group as server-filtered tabs', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
       const soon = new Date(Date.now() + 10 * 60 * 1000).toISOString()
@@ -125,10 +125,14 @@ describe('historical dashboard', () => {
       } : openMarkets
       return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } })
     }))
+    const user = userEvent.setup()
     render(<OpenMarketsPage />)
-    expect(await screen.findByText('Closing in the next 15 minutes')).toBeInTheDocument()
-    expect(screen.getByText('Finance')).toBeInTheDocument()
-    expect(screen.queryByText('Crypto')).not.toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /Next 15 min/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Crypto/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Finance/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /Next 15 min/ }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('category=closing_soon'), expect.anything()))
+    expect(screen.getByRole('tab', { name: /Next 15 min/ })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('keeps cached results visible when open-market data is stale', async () => {

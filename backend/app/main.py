@@ -25,7 +25,7 @@ from .models import (
     SyncRun,
     Window,
 )
-from .open_markets import OpenMarketService, OpenMarketsUnavailable
+from .open_markets import OpenMarketService, OpenMarketsUnavailable, category_filter
 from .service import SyncService
 from .storage import LegacyDatasetError, Store
 
@@ -148,10 +148,14 @@ async def open_markets(
     horizon: OpenMarketHorizon = OpenMarketHorizon.SEVEN_DAYS,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=50),
+    category: str = "all",
     refresh: bool = False,
 ) -> OpenMarketsResponse | JSONResponse:
+    selected_category = category_filter(category)
+    if selected_category is None:
+        raise HTTPException(422, "Unknown open-market category")
     try:
-        return await app.state.open_markets.list(horizon.value, threshold, page, page_size, refresh)
+        return await app.state.open_markets.list(horizon.value, threshold, page, page_size, refresh, selected_category)
     except OpenMarketsUnavailable as exc:
         # Keep errors out of FastAPI's opaque `detail` wrapper so the client can
         # resume a refresh using the same countdown field as a stale response.

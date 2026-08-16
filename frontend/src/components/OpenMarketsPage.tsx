@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, CalendarClock, ChevronLeft, ChevronRight, Clock3, ExternalLink, LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-react'
 import { api } from '../api/client'
 import { ApiError, type OpenMarket, type OpenMarketsHorizon, type OpenMarketsResponse } from '../api/types'
@@ -9,10 +9,10 @@ const HORIZON_LABELS: Record<OpenMarketsHorizon, string> = {
   '7d': '7 days',
   '14d': '14 days',
 }
-const CATEGORY_ORDER = ['Elections', 'Politics', 'Culture', 'Sports', 'Crypto', 'Commodities', 'Climate', 'Economics', 'Mentions', 'Finance', 'Tech & Science', 'Other']
-const FIFTEEN_MINUTES_MS = 15 * 60 * 1000
+const CATEGORY_TABS = ['Elections', 'Politics', 'Culture', 'Sports', 'Crypto', 'Commodities', 'Climate', 'Economics', 'Mentions', 'Finance', 'Tech & Science', 'Other']
+type MarketTab = 'all' | 'closing_soon' | (typeof CATEGORY_TABS)[number]
 
-const emptyResponse: OpenMarketsResponse = { items: [], page: 1, page_size: 50, total: 0, pages: 0, scanned_markets: 0, matching_markets: 0, as_of: '', refresh_state: 'idle', stale: false, breaker_seconds_remaining: 0 }
+const emptyResponse: OpenMarketsResponse = { items: [], page: 1, page_size: 50, total: 0, pages: 0, scanned_markets: 0, matching_markets: 0, category_counts: {}, closing_soon_markets: 0, as_of: '', refresh_state: 'idle', stale: false, breaker_seconds_remaining: 0 }
 
 function asDate(value: string | null | undefined) {
   if (!value) return null
@@ -65,26 +65,11 @@ function summaryBid(response: OpenMarketsResponse) {
   return response.highest_bid
 }
 
-type MarketGroup = { label: string; items: OpenMarket[] }
-
-function marketGroups(markets: OpenMarket[], now: number): MarketGroup[] {
-  const urgent = markets.filter((market) => {
-    const closeAt = asDate(market.close_at)?.getTime()
-    return closeAt !== undefined && closeAt >= now && closeAt - now <= FIFTEEN_MINUTES_MS
-  })
-  const urgentTickers = new Set(urgent.map((market) => market.ticker))
-  const remaining = markets.filter((market) => !urgentTickers.has(market.ticker))
-  const categories = CATEGORY_ORDER.map((category) => ({
-    label: category,
-    items: remaining.filter((market) => (market.category || 'Other') === category),
-  })).filter((group) => group.items.length)
-  return urgent.length ? [{ label: 'Closing in the next 15 minutes', items: urgent }, ...categories] : categories
-}
-
 export function OpenMarketsPage() {
   const [threshold, setThreshold] = useState(80)
   const [customThreshold, setCustomThreshold] = useState('')
   const [horizon, setHorizon] = useState<OpenMarketsHorizon>('7d')
+  const [tab, setTab] = useState<MarketTab>('all')
   const [page, setPage] = useState(1)
   const [data, setData] = useState<OpenMarketsResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -117,7 +102,7 @@ export function OpenMarketsPage() {
     else { setLoading(true); setRefreshing(false) }
     setError(null)
     try {
-      const response = await api.openMarkets({ threshold, horizon, page, pageSize: 50, refresh, signal: controller.signal })
+      const response = await api.openMarkets({ threshold, horizon, page, pageSize: 50, category: tab, refresh, signal: controller.signal })
       if (!isCurrent()) return
       setData(response)
       setCircuitSeconds(response.breaker_seconds_remaining)
@@ -133,7 +118,7 @@ export function OpenMarketsPage() {
         setRefreshing(false)
       }
     }
-  }, [horizon, page, threshold])
+  }, [horizon, page, tab, threshold])
 
   useEffect(() => { void load() }, [load])
 
@@ -168,6 +153,10 @@ export function OpenMarketsPage() {
     setHorizon(value)
     setPage(1)
   }
+  const selectTab = (value: MarketTab) => {
+    setTab(value)
+    setPage(1)
+  }
 
   const response = data ?? emptyResponse
   const matchingCount = response.matching_markets
@@ -176,7 +165,8 @@ export function OpenMarketsPage() {
   const lastRefresh = response.as_of ? formatCloseTime(response.as_of) : data ? 'Just now' : '—'
   const stale = response.stale
   const pageCount = Math.max(1, response.pages)
-  const groups = marketGroups(response.items, now)
+  const categoryCounts = response.category_counts ?? {}
+  const tabCount = (value: MarketTab) => value === 'all' ? Object.values(categoryCounts).reduce((total, count) => total + count, 0) : value === 'closing_soon' ? response.closing_soon_markets : categoryCounts[value] ?? 0
 
   return <section className="open-markets-page" aria-labelledby="open-markets-heading">
     <div className="title-row"><div><h1 id="open-markets-heading">Open markets</h1><p>Markets currently favoring one outcome at or above your selected bid threshold.</p></div><div className="title-actions"><button className="primary-button" disabled={loading || refreshing || circuitSeconds > 0} onClick={() => void load(true)}>{refreshing ? <LoaderCircle className="spin" /> : <RefreshCw />}{refreshing ? 'Refreshing…' : 'Refresh'}</button></div></div>
@@ -200,7 +190,8 @@ export function OpenMarketsPage() {
 
     <section className="table-panel open-table" aria-labelledby="open-markets-table-heading">
       <header className="table-heading"><div><h2 id="open-markets-table-heading">Soonest-closing opportunities</h2><span>Fixed order: soonest close first · {response.total.toLocaleString()} matching markets</span></div></header>
-      {loading && !data ? <div className="loading-state"><LoaderCircle className="spin" /> Loading open markets</div> : !response.items.length ? <div className="empty-state"><CalendarClock /><div><strong>No open markets match this selection</strong><span>Try a lower threshold or a longer closing horizon.</span></div></div> : <><div className="table-scroll"><table><thead><tr><th>Market</th><th>Favored option</th><th>Best bid</th><th>YES %</th><th>NO %</th><th>24h volume</th><th>Liquidity</th><th>Closes in</th><th>Local close time</th></tr></thead><tbody>{groups.map((group) => <Fragment key={group.label}><tr className="market-group-row"><th colSpan={9} scope="rowgroup">{group.label}<span>{group.items.length} market{group.items.length === 1 ? '' : 's'}</span></th></tr>{group.items.map((market) => <OpenMarketRow key={market.ticker} market={market} now={now} />)}</Fragment>)}</tbody></table></div><div className="pagination"><span>Page {response.page} of {pageCount}</span><div><button aria-label="Previous page" disabled={response.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft /></button><button aria-label="Next page" disabled={response.page >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}><ChevronRight /></button></div></div></>}
+      <div className="market-tabs" role="tablist" aria-label="Market category"><button role="tab" aria-selected={tab === 'all'} className={tab === 'all' ? 'tab-active' : ''} onClick={() => selectTab('all')}>All <span>{tabCount('all')}</span></button><button role="tab" aria-selected={tab === 'closing_soon'} className={tab === 'closing_soon' ? 'tab-active' : ''} onClick={() => selectTab('closing_soon')}>Next 15 min <span>{tabCount('closing_soon')}</span></button>{CATEGORY_TABS.map((category) => <button key={category} role="tab" aria-selected={tab === category} className={tab === category ? 'tab-active' : ''} onClick={() => selectTab(category)}>{category} <span>{tabCount(category)}</span></button>)}</div>
+      {loading && !data ? <div className="loading-state"><LoaderCircle className="spin" /> Loading open markets</div> : !response.items.length ? <div className="empty-state"><CalendarClock /><div><strong>No open markets match this selection</strong><span>Try a different category, lower threshold, or longer closing horizon.</span></div></div> : <><div className="table-scroll"><table><thead><tr><th>Market</th><th>Favored option</th><th>Best bid</th><th>YES %</th><th>NO %</th><th>24h volume</th><th>Liquidity</th><th>Closes in</th><th>Local close time</th></tr></thead><tbody>{response.items.map((market) => <OpenMarketRow key={market.ticker} market={market} now={now} />)}</tbody></table></div><div className="pagination"><span>Page {response.page} of {pageCount}</span><div><button aria-label="Previous page" disabled={response.page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))}><ChevronLeft /></button><button aria-label="Next page" disabled={response.page >= pageCount || loading} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}><ChevronRight /></button></div></div></>}
     </section>
   </section>
 }
