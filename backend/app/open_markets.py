@@ -21,6 +21,14 @@ DISPLAY_CATEGORIES = (
     "Elections", "Politics", "Culture", "Sports", "Crypto", "Commodities",
     "Climate", "Economics", "Mentions", "Finance", "Tech & Science",
 )
+CATEGORY_ALIASES = {
+    "climate and weather": "Climate",
+    "financials": "Finance",
+    "companies": "Finance",
+    "science and technology": "Tech & Science",
+    "entertainment": "Culture",
+    "social": "Mentions",
+}
 
 
 class OpenMarketsUnavailable(RuntimeError):
@@ -145,8 +153,10 @@ class OpenMarketService:
             and started_at <= close_at <= max_close_at
         }
         missing = sorted(event_tickers - self._event_categories.keys())
-        for start in range(0, len(missing), 200):
-            tickers = missing[start:start + 200]
+        batches = [missing[start:start + 200] for start in range(0, len(missing), 200)]
+
+        async def fetch_batch(tickers: list[str]) -> dict[str, str]:
+            resolved: dict[str, str] = {}
             cursor: str | None = None
             while True:
                 params: dict[str, Any] = {"tickers": ",".join(tickers), "limit": 200}
@@ -156,10 +166,13 @@ class OpenMarketService:
                 for event in payload.get("events", []):
                     ticker = str(event.get("event_ticker", "")).strip().upper()
                     if ticker:
-                        self._event_categories[ticker] = normalize_category(event.get("category"))
+                        resolved[ticker] = normalize_category(event.get("category"))
                 cursor = payload.get("cursor") or None
                 if cursor is None:
-                    break
+                    return resolved
+
+        for resolved in await asyncio.gather(*(fetch_batch(batch) for batch in batches)):
+            self._event_categories.update(resolved)
         for market in markets:
             close_at = parse_time(market.get("close_time"))
             if market.get("category") is None and close_at is not None and started_at <= close_at <= max_close_at:
@@ -344,6 +357,9 @@ def slugify(value: str) -> str:
 
 def normalize_category(value: Any) -> str:
     candidate = str(value or "").strip()
+    alias = CATEGORY_ALIASES.get(candidate.casefold())
+    if alias is not None:
+        return alias
     if candidate.casefold() == "sport":
         candidate = "Sports"
     for category in DISPLAY_CATEGORIES:

@@ -262,6 +262,10 @@ async def test_categories_are_enriched_in_event_batches_and_cached(monkeypatch):
     await service.list("7d", 80, 1, 50, refresh=True)
     assert len(calls) == 1
     assert normalize_category("Sport") == "Sports"
+    assert normalize_category("Climate and Weather") == "Climate"
+    assert normalize_category("Financials") == "Finance"
+    assert normalize_category("Science and Technology") == "Tech & Science"
+    assert normalize_category("Entertainment") == "Culture"
     assert normalize_category("Unknown") == "Other"
 
 
