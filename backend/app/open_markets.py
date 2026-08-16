@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -54,6 +55,9 @@ class OpenMarketService:
         self.clock = clock
         self._cache: dict[str, _Snapshot] = {}
         self._locks = {horizon: asyncio.Lock() for horizon in HORIZONS}
+        self._event_links: dict[str, str] = {}
+        self._event_link_locks: dict[str, asyncio.Lock] = {}
+        self._series_slugs: dict[str, str] = {}
 
     async def list(
         self, horizon: str, threshold: int, page: int, page_size: int, refresh: bool = False
@@ -152,6 +156,47 @@ class OpenMarketService:
     def _age(self, snapshot: _Snapshot | None) -> float:
         return float("inf") if snapshot is None else max(0.0, self.clock() - snapshot.cached_at)
 
+    async def market_link(self, event_ticker: str) -> str:
+        """Resolve Kalshi's canonical event route only after a user clicks its CTA.
+
+        Market catalogs do not contain Kalshi's website slug. Resolving it lazily
+        keeps opening the dashboard to the one bounded catalog request, while
+        caching the result in memory for subsequent clicks.
+        """
+        normalized = event_ticker.strip().upper()
+        if not normalized:
+            raise ValueError("event_ticker is required")
+        cached = self._event_links.get(normalized)
+        if cached is not None:
+            return cached
+        lock = self._event_link_locks.setdefault(normalized, asyncio.Lock())
+        async with lock:
+            cached = self._event_links.get(normalized)
+            if cached is not None:
+                return cached
+            if self.mode == "demo":
+                raise ValueError("Demo markets do not have a live Kalshi page")
+            client = KalshiClient(self.governor, base_url=self.base_url)
+            try:
+                event_payload = await client.get(f"/events/{normalized}")
+                event = event_payload.get("event") or {}
+                series_ticker = str(event.get("series_ticker") or "").strip().upper()
+                if not series_ticker:
+                    raise ValueError("Kalshi did not return a series ticker for this market")
+                series_slug = self._series_slugs.get(series_ticker)
+                if series_slug is None:
+                    series_payload = await client.get(f"/series/{series_ticker}")
+                    series = series_payload.get("series") or {}
+                    series_slug = slugify(str(series.get("title") or ""))
+                    if not series_slug:
+                        raise ValueError("Kalshi did not return a usable series title for this market")
+                    self._series_slugs[series_ticker] = series_slug
+            finally:
+                await client.close()
+            url = f"https://kalshi.com/markets/{series_ticker.lower()}/{series_slug}/{normalized.lower()}"
+            self._event_links[normalized] = url
+            return url
+
 
 def active_ordinary_binary(market: dict[str, Any]) -> bool:
     return (
@@ -234,6 +279,12 @@ def parse_time(value: Any) -> datetime | None:
         return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
     except ValueError:
         return None
+
+
+def slugify(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    characters = (char.lower() if char.isalnum() else "" if char in "'’" else " " for char in normalized)
+    return "-".join(part for part in "".join(characters).split())
 
 
 def demo_open_markets(now: datetime) -> list[dict[str, Any]]:

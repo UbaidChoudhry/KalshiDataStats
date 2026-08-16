@@ -187,6 +187,24 @@ export function OpenMarketsPage() {
 }
 
 function OpenMarketRow({ market, now }: { market: OpenMarket; now: number }) {
-  const kalshiUrl = `https://kalshi.com/markets/${encodeURIComponent(market.ticker)}`
-  return <tr><td className="market-name"><strong>{market.title}</strong><span>{market.subtitle ?? market.ticker}{market.event_ticker ? ` · ${market.event_ticker}` : ''}</span><a className="market-cta" href={kalshiUrl} target="_blank" rel="noreferrer" aria-label={`Open ${market.title} on Kalshi`}>Open in Kalshi <ExternalLink aria-hidden="true" /></a></td><td><span className="favored-option">{market.qualifying_label}</span>{market.can_close_early && <span className="early-close-badge">May close early</span>}</td><td className="best-bid">{formatBid(market.qualifying_bid_percent)}</td><td>{formatPercent(market.yes_bid_percent)}</td><td>{formatPercent(market.no_bid_percent)}</td><td>{formatContracts(market.volume_24h)}</td><td>{formatMoney(market.liquidity_dollars)}</td><td>{formatCloseDistance(market.close_at, now)}</td><td>{formatCloseTime(market.close_at)}</td></tr>
+  const [opening, setOpening] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
+  const openInKalshi = async () => {
+    if (!market.event_ticker || opening) return
+    const popup = window.open('', '_blank')
+    if (popup) popup.opener = null
+    setOpening(true)
+    setLinkError(null)
+    try {
+      const { url } = await api.openMarketLink(market.event_ticker)
+      if (!popup) throw new Error('Your browser blocked the new tab. Allow pop-ups for this local dashboard and try again.')
+      popup.location.replace(url)
+    } catch (error) {
+      popup?.close()
+      setLinkError(error instanceof Error ? error.message : 'Unable to open this Kalshi market')
+    } finally {
+      setOpening(false)
+    }
+  }
+  return <tr><td className="market-name"><strong>{market.title}</strong><span>{market.subtitle ?? market.ticker}{market.event_ticker ? ` · ${market.event_ticker}` : ''}</span><button className="market-cta" type="button" disabled={!market.event_ticker || opening} onClick={() => void openInKalshi()} aria-label={`Open ${market.title} on Kalshi`}>{opening ? 'Opening…' : 'Open in Kalshi'} <ExternalLink aria-hidden="true" /></button>{linkError && <small className="market-link-error" role="alert">{linkError}</small>}</td><td><span className="favored-option">{market.qualifying_label}</span>{market.can_close_early && <span className="early-close-badge">May close early</span>}</td><td className="best-bid">{formatBid(market.qualifying_bid_percent)}</td><td>{formatPercent(market.yes_bid_percent)}</td><td>{formatPercent(market.no_bid_percent)}</td><td>{formatContracts(market.volume_24h)}</td><td>{formatMoney(market.liquidity_dollars)}</td><td>{formatCloseDistance(market.close_at, now)}</td><td>{formatCloseTime(market.close_at)}</td></tr>
 }

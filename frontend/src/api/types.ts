@@ -15,6 +15,7 @@ export type SyncRun = Omit<components['schemas']['SyncRun'], 'status'> & {
 
 export type OpenMarketsHorizon = components['schemas']['OpenMarketHorizon']
 export type OpenMarket = components['schemas']['OpenMarket']
+export type OpenMarketLink = components['schemas']['OpenMarketLink']
 export type OpenMarketsResponse = components['schemas']['OpenMarketsResponse']
 
 export class ApiError extends Error {

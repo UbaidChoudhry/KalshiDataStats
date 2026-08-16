@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.kalshi import CircuitOpen, KalshiClient, RequestGovernor
-from backend.app.open_markets import OpenMarketService, OpenMarketsUnavailable, to_market
+from backend.app.open_markets import OpenMarketService, OpenMarketsUnavailable, slugify, to_market
 
 
 def close_after(hours: int) -> str:
@@ -221,3 +221,30 @@ def test_naive_close_times_are_normalized_to_utc():
     item = to_market(market("NAIVE", "2026-08-16T12:00:00", "0.81", "0.19"))
     assert item is not None
     assert item.close_at.tzinfo == UTC
+
+
+@pytest.mark.asyncio
+async def test_market_link_resolves_and_caches_the_canonical_kalshi_event_route(monkeypatch):
+    calls = []
+
+    class Client:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def get(self, path):
+            calls.append(path)
+            if path == "/events/KXPGATOUR-FESJC26":
+                return {"event": {"series_ticker": "KXPGATOUR"}}
+            assert path == "/series/KXPGATOUR"
+            return {"series": {"title": "PGA Tour"}}
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("backend.app.open_markets.KalshiClient", Client)
+    service = OpenMarketService("real", "https://example.test", RequestGovernor(100))
+    expected = "https://kalshi.com/markets/kxpgatour/pga-tour/kxpgatour-fesjc26"
+    assert await service.market_link("kxpgatour-fesjc26") == expected
+    assert await service.market_link("KXPGATOUR-FESJC26") == expected
+    assert calls == ["/events/KXPGATOUR-FESJC26", "/series/KXPGATOUR"]
+    assert slugify("Women's Pro Basketball Game") == "womens-pro-basketball-game"

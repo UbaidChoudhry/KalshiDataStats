@@ -25,7 +25,8 @@ describe('historical dashboard', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input)
-      const payload = url.includes('/open-markets') ? openMarkets
+      const payload = url.includes('/open-markets/link') ? { url: 'https://kalshi.com/markets/kxpgatour/pga-tour/kxpgatour-fesjc26' }
+        : url.includes('/open-markets') ? openMarkets
         : url.includes('/summary') ? { window: '1y', threshold: 80, settled_markets: 100, crossed_markets: 20, wrong_markets: 4, miss_rate: .2 }
         : url.includes('/bands') ? { items: [{ min_percent: 80, max_percent: 84, label: '80–84%', count: 4 }] }
         : url.includes('/misses') ? { items: markets, page: 1, page_size: 50, total: 1, pages: 1 }
@@ -82,7 +83,7 @@ describe('historical dashboard', () => {
     expect(screen.getByText('Will the launch happen this morning?')).toBeInTheDocument()
     expect(screen.getByText('May close early')).toBeInTheDocument()
     expect(screen.getByText('Will the launch happen tomorrow?')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open Will the launch happen this morning? on Kalshi' })).toHaveAttribute('href', 'https://kalshi.com/markets/SOON')
+    expect(screen.getByRole('button', { name: 'Open Will the launch happen this morning? on Kalshi' })).toBeInTheDocument()
     expect(screen.getByText('YES %')).toBeInTheDocument()
     expect(screen.getByText('NO %')).toBeInTheDocument()
     expect(screen.getByText('92%')).toBeInTheDocument()
@@ -92,6 +93,20 @@ describe('historical dashboard', () => {
     await user.click(screen.getByRole('button', { name: '90%+' }))
     await user.selectOptions(screen.getByLabelText('Closing horizon'), '3d')
     await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining('threshold=90&horizon=3d&page=1&page_size=50&refresh=false'), expect.anything()))
+  })
+
+  it('resolves the canonical Kalshi event page only when its CTA is clicked', async () => {
+    const replace = vi.fn()
+    const popup = { opener: window, location: { replace }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window)
+    const user = userEvent.setup()
+    render(<OpenMarketsPage />)
+    await screen.findByText('Will the launch happen this morning?')
+    await user.click(screen.getByRole('button', { name: 'Open Will the launch happen this morning? on Kalshi' }))
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/v1/open-markets/link?event_ticker=EVENT-SOON', expect.anything()))
+    expect(replace).toHaveBeenCalledWith('https://kalshi.com/markets/kxpgatour/pga-tour/kxpgatour-fesjc26')
+    expect(popup.opener).toBeNull()
+    open.mockRestore()
   })
 
   it('keeps cached results visible when open-market data is stale', async () => {

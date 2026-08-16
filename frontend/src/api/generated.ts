@@ -157,6 +157,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/open-markets/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Open Market Link */
+        get: operations["open_market_link_api_v1_open_markets_link_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -332,6 +349,14 @@ export interface components {
          * @enum {string}
          */
         OpenMarketHorizon: "24h" | "3d" | "7d" | "14d";
+        /**
+         * OpenMarketLink
+         * @description The canonical Kalshi event page containing a selected market.
+         */
+        OpenMarketLink: {
+            /** Url */
+            url: string;
+        };
         /** OpenMarketsError */
         OpenMarketsError: {
             /**
@@ -733,6 +758,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OpenMarketsErrorResponse"];
+                };
+            };
+        };
+    };
+    open_market_link_api_v1_open_markets_link_get: {
+        parameters: {
+            query: {
+                event_ticker: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenMarketLink"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

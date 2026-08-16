@@ -18,6 +18,7 @@ from .models import (
     HistorySummary,
     MissesResponse,
     OpenMarketHorizon,
+    OpenMarketLink,
     OpenMarketsErrorResponse,
     OpenMarketsResponse,
     SyncRequest,
@@ -166,6 +167,14 @@ async def open_markets(
                 "breaker_seconds_remaining": exc.retry_after_seconds,
             },
         )
+
+
+@app.get("/api/v1/open-markets/link", response_model=OpenMarketLink)
+async def open_market_link(event_ticker: str = Query(..., min_length=1, max_length=160)) -> OpenMarketLink:
+    try:
+        return OpenMarketLink(url=await app.state.open_markets.market_link(event_ticker))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 # The production build is optional during backend-only development. When present, one local

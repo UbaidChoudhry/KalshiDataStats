@@ -113,6 +113,12 @@ class OpenMarket(BaseModel):
     can_close_early: bool = False
 
 
+class OpenMarketLink(BaseModel):
+    """The canonical Kalshi event page containing a selected market."""
+
+    url: str
+
+
 class OpenMarketsResponse(BaseModel):
     """A non-persistent, point-in-time view of qualifying open contracts."""
 

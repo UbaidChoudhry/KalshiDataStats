@@ -1,4 +1,4 @@
-import { ApiError, type ConfidenceBand, type DataStatus, type MissesResponse, type OpenMarketsHorizon, type OpenMarketsResponse, type Summary, type SyncRun, type WindowKey } from './types'
+import { ApiError, type ConfidenceBand, type DataStatus, type MissesResponse, type OpenMarketLink, type OpenMarketsHorizon, type OpenMarketsResponse, type Summary, type SyncRun, type WindowKey } from './types'
 
 const API_ROOT = '/api/v1'
 
@@ -72,6 +72,8 @@ export const api = {
     })
     return request<OpenMarketsResponse>(`/open-markets?${query}`, { signal: params.signal })
   },
+  openMarketLink: (eventTicker: string) =>
+    request<OpenMarketLink>(`/open-markets/link?${new URLSearchParams({ event_ticker: eventTicker })}`),
   startSync: (window: WindowKey) =>
     request<SyncRun>('/sync-runs', { method: 'POST', body: JSON.stringify({ window }) }),
   currentSync: () => request<SyncRun | null>('/sync-runs/current'),
